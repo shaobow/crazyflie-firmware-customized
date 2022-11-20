@@ -1,8 +1,6 @@
 #include "controller_lqr.h"
 #include <math.h>
 
-#include "attitude_controller.h"
-
 #define m 0.027
 #define g 9.81
 
@@ -14,7 +12,7 @@ void controllerLqrInit(void){
 bool controllerLqrTest(void){
   bool pass = true;
 
-  pass &= attitudeControllerTest();
+  // pass &= attitudeControllerTest();
 
   return pass;
 }
