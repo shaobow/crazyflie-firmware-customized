@@ -1,9 +1,10 @@
 #include "controller_lqr.h"
+#include <math.h>
+
+#include "attitude_controller.h"
 
 #define m 0.027
 #define g 9.81
-
-#define M_PI   3.14159265358979323846
 
 void controllerLqrInit(void){
     //attitudeControllerInit(ATTITUDE_UPDATE_DT);
@@ -34,7 +35,7 @@ void controllerLqr(control_t *control, setpoint_t *setpoint,
     {0.0032, 0.0, 0.0, 0.0, 0.0132, 0.0, 0.0031, 0.0, 0.0, 0.0, 0.0019, 0.0}, 
     {0.0, 0.0, 0.0, 0.0, 0.0, 0.0086, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0028}};
   float u[4];
-  float dt = 0.01; 
+  // float dt = 0.01; 
   float e1 = setpoint->position.x *  - state->position.x;
   float e2 = setpoint->position.y - state->position.y;
   float e3 = setpoint->position.z - state->position.z;
@@ -51,7 +52,7 @@ void controllerLqr(control_t *control, setpoint_t *setpoint,
   float e11 = setpoint->attitudeRate.pitch - state_ratePitch;
   float e12 = setpoint->attitudeRate.yaw - state_rateYaw;
   float error[12] = {e1, e2, e3, e4, e5, e6, e7, e8, e9, e10, e11, e12};
-  int i, j, k = 0; // to do: initialization 
+  int i = 0, j = 0, k = 0; // to do: initialization 
   float res = 0;
   
   while (i < 4){
@@ -69,7 +70,7 @@ void controllerLqr(control_t *control, setpoint_t *setpoint,
   }
 
   /* feedback */
-  control->thrust = u[0] + m * g;
+  control->thrust = u[0] + (float) (m * g);
   control->roll = u[1];
   control->pitch = u[2];
   control->yaw = u[3];
