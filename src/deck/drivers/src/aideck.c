@@ -43,6 +43,7 @@
 #include "debug.h"
 #include "deck.h"
 #include "esp_deck_flasher.h"
+#include "FreeRTOS.h"
 #include "task.h"
 #include "event_groups.h"
 #include "queue.h"
@@ -76,9 +77,6 @@ static bool isInit = false;
 #define WIFI_CLIENT_CONNECTED_CMD 0x32
 
 #define CPX_ENABLE_CRTP_BRIDGE    0x10
-
-#define GAP8_MAX_MEM_WRITE_TIMEOUT_MS 5000
-#define GAP8_MAX_MEM_VERIFY_TIMEOUT_MS 5000
 
 typedef struct {
   uint8_t cmd;
@@ -128,8 +126,7 @@ static bool gap8DeckFlasherWrite(const uint32_t memAddr, const uint8_t writeLen,
     gap8BlPacket->startAddress = 0x40000;
     gap8BlPacket->writeSize = *(memDef->newFwSizeP);
     bootPacket.dataLength = sizeof(GAP8BlCmdPacket_t);
-    bool writeOk = cpxSendPacketBlockingTimeout(&bootPacket, M2T(GAP8_MAX_MEM_WRITE_TIMEOUT_MS));
-    ASSERT(writeOk);
+    cpxSendPacketBlocking(&bootPacket);
   }
 
   // The GAP8 can only flash data in multiples of 4 bytes,
@@ -147,8 +144,7 @@ static bool gap8DeckFlasherWrite(const uint32_t memAddr, const uint8_t writeLen,
     memcpy(&bootPacket.data, flashBuffer, flashBufferIndex);
     bootPacket.dataLength = flashBufferIndex;
 
-    bool writeOk = cpxSendPacketBlockingTimeout(&bootPacket, M2T(GAP8_MAX_MEM_WRITE_TIMEOUT_MS));
-    ASSERT(writeOk);
+    cpxSendPacketBlocking(&bootPacket);
 
     flashBufferIndex = 0;
     int sizeLeftToBuffer = writeLen - sizeLeftToBufferFull;
@@ -167,16 +163,13 @@ static bool gap8DeckFlasherWrite(const uint32_t memAddr, const uint8_t writeLen,
     gap8BlPacket->startAddress = 0x40000;
     gap8BlPacket->writeSize = *(memDef->newFwSizeP);
     bootPacket.dataLength = sizeof(GAP8BlCmdPacket_t);
-    bool writeOk = cpxSendPacketBlockingTimeout(&bootPacket, M2T(GAP8_MAX_MEM_WRITE_TIMEOUT_MS));
-    ASSERT(writeOk);
+    cpxSendPacketBlocking(&bootPacket);
 
-    EventBits_t bits = xEventGroupWaitBits(bootloaderSync,
+    xEventGroupWaitBits(bootloaderSync,
                         CPX_WAIT_FOR_BOOTLOADER_REPLY,
                         pdTRUE,  // Clear bits before returning
                         pdFALSE, // Wait for any bit
-                        M2T(GAP8_MAX_MEM_VERIFY_TIMEOUT_MS));
-    bool flashWritten = (bits & CPX_WAIT_FOR_BOOTLOADER_REPLY);
-    ASSERT(flashWritten);
+                        portMAX_DELAY);
 }
 
   return true;

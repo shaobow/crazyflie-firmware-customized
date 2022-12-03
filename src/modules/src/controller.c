@@ -6,11 +6,13 @@
 #include "controller_pid.h"
 #include "controller_mellinger.h"
 #include "controller_indi.h"
-#include "controller_brescianini.h"
+#include "controller_lqr.h"
+#include "controller_lqr_reduced.h"
 
 #include "autoconf.h"
 
-#define DEFAULT_CONTROLLER ControllerTypePID
+// #define DEFAULT_CONTROLLER ControllerTypePID
+#define DEFAULT_CONTROLLER ControllerTypeLQR
 static ControllerType currentController = ControllerTypeAny;
 
 static void initController();
@@ -27,7 +29,8 @@ static ControllerFcns controllerFunctions[] = {
   {.init = controllerPidInit, .test = controllerPidTest, .update = controllerPid, .name = "PID"},
   {.init = controllerMellingerInit, .test = controllerMellingerTest, .update = controllerMellinger, .name = "Mellinger"},
   {.init = controllerINDIInit, .test = controllerINDITest, .update = controllerINDI, .name = "INDI"},
-  {.init = controllerBrescianiniInit, .test = controllerBrescianiniTest, .update = controllerBrescianini, .name = "Brescianini"},
+  {.init = controllerLqrInit, .test = controllerLqrTest, .update = controllerLqr, .name = "LQR"},
+  {.init = controllerLqrReducedInit, .test = controllerLqrReducedTest, .update = controllerLqrReduced, .name = "LQRReduced"},
 };
 
 
@@ -48,8 +51,10 @@ void controllerInit(ControllerType controller) {
     #define CONTROLLER ControllerTypeINDI
   #elif defined(CONFIG_CONTROLLER_MELLINGER)
     #define CONTROLLER ControllerTypeMellinger
-  #elif defined(CONFIG_CONTROLLER_BRESCIANINI)
-    #define CONTROLLER ControllerTypeBrescianini
+  #elif defined(CONFIG_CONTROLLER_LQR)
+    #define CONTROLLER ControllerTypeLQR
+  #elif defined(CONFIG_CONTROLLER_LQR_REDUCED)
+    #define CONTROLLER ControllerTypeLQRReduced
   #else
     #define CONTROLLER ControllerTypeAny
   #endif
