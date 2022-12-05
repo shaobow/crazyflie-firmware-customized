@@ -12,7 +12,7 @@
 #include "controller_lqr.h"
 #include "physicalConstants.h"
 
-static float g = 9.81;
+const static float g = 9.81;
 
 // Logging variables
 static float cmd_thrust;
@@ -27,6 +27,8 @@ static float err_roll;
 static float err_pitch;
 static float err_yaw;
 
+static int cmd_tick;
+
 static float K_dlqr[4][12] = {
       { 1.2582, -1.7788,  4.7904, -0.1549,  0.0516,  0.0006,  0.3540, -0.5002,  1.3885, -0.0001,       0,       0},
       { 0.0033, -0.0154, -0.0176,  0.0730,  0.0051, -0.0053,  0.0040, -0.0112, -0.0140,  0.0089,       0,       0},
@@ -34,6 +36,8 @@ static float K_dlqr[4][12] = {
       { 0.0452,  0.0197, -0.0121, -0.0249,  0.0322,  0.1083,  0.0311,  0.0103, -0.0117,       0,       0,  0.0138}
     };
 
+const static float deg2millirad = (float) M_PI / 180.0f;
+const static float cf_weight = CF_MASS * g;
 
 void controllerLqrInit(void)
 {
@@ -52,13 +56,12 @@ void controllerLqr(control_t *control, setpoint_t *setpoint,
   control->controlMode = controlModeForceTorque;
 
   if (!RATE_DO_EXECUTE(ATTITUDE_RATE, tick)) {
+    cmd_tick = 0;
     return;
   }
 
-  // gyro unit: rad/sec
-  float const deg2millirad = (float)M_PI / 180.0f;
   // using sensor info for state estimation of dotRoll, dotPitch, and dotYaw
-  float state_rateRoll = sensors->gyro.x * deg2millirad;
+  float state_rateRoll = sensors->gyro.x * deg2millirad; // gyro unit: rad/sec
   float state_ratePitch = -sensors->gyro.y * deg2millirad;
   float state_rateYaw = sensors->gyro.z * deg2millirad;
 
@@ -97,7 +100,7 @@ void controllerLqr(control_t *control, setpoint_t *setpoint,
   }
 
   /* feedback */
-  control->thrustSi = u[0] + CF_MASS * g;
+  control->thrustSi = u[0] + cf_weight;
   control->torqueX = u[1];
   control->torqueY = u[2];
   control->torqueZ = u[3];
@@ -113,12 +116,15 @@ void controllerLqr(control_t *control, setpoint_t *setpoint,
   err_roll = e4;
   err_pitch = e5;
   err_yaw = e6;
+
+  cmd_tick = 1;
 }
 
 /**
  * Logging variables for the command and reference signals for the
  * Mellinger controller
  */
+
 LOG_GROUP_START(ctrlMel)
 LOG_ADD(LOG_FLOAT, cmd_thrust, &cmd_thrust)
 LOG_ADD(LOG_FLOAT, cmd_roll, &cmd_roll)
@@ -131,4 +137,7 @@ LOG_ADD(LOG_FLOAT, err_z, &err_z)
 LOG_ADD(LOG_FLOAT, err_roll, &err_roll)
 LOG_ADD(LOG_FLOAT, err_pitch, &err_pitch)
 LOG_ADD(LOG_FLOAT, err_yaw, &err_yaw)
+
+LOG_ADD(LOG_INT8, cmd_tick, &cmd_tick)
 LOG_GROUP_STOP(ctrlMel)
+

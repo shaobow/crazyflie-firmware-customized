@@ -12,7 +12,7 @@
 #include "autoconf.h"
 
 // #define DEFAULT_CONTROLLER ControllerTypePID
-#define DEFAULT_CONTROLLER ControllerTypeLQR
+#define DEFAULT_CONTROLLER ControllerTypeLQRReduced
 static ControllerType currentController = ControllerTypeAny;
 
 static void initController();
