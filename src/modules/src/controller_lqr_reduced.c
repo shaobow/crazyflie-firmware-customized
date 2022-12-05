@@ -31,12 +31,32 @@ static float ctrl_thrust = 0.0;
 # define NUM_STATE 6
 # define NUM_CTRL 3
 
-static float K_dlqr[NUM_CTRL][NUM_STATE] = {
-    {0.0088,    0.0000,    0.0000,    0.0088,    0.0000,    0.0000},
-    {0.0000,    0.0091,   -0.0000,   -0.0000,    0.0091,   -0.0000},
-    {0.0000,   -0.0000,    0.0138,    0.0000,   -0.0000,    0.0138},
+static float K_dlqr_0_0[NUM_CTRL][NUM_STATE] = {
+    { 0.0305,    0.0001,   -0.0000,    0.0089,    0.0000,    0.0000},
+    {-0.0001,    0.0314,   -0.0000,   -0.0000,    0.0091,   -0.0000},
+    { 0.0000,   -0.0000,    0.0434,    0.0000,   -0.0000,    0.0138},
 };
 
+static float K_dlqr_10_0[NUM_CTRL][NUM_STATE] = {
+   { 0.0305,    0.0001,   -0.0000,    0.0089,    0.0000,    0.0000},
+   {-0.0001,    0.0314,   -0.0000,   -0.0000,    0.0091,   -0.0000},
+   { 0.0000,   -0.0000,    0.0434,    0.0000,   -0.0000,    0.0138},
+};
+
+static float K_dlqr_0_10[NUM_CTRL][NUM_STATE] = {
+    { 0.0305,    0.0001,    0.0000,    0.0089,    0.0000,    0.0000},
+    {-0.0001,    0.0314,   -0.0000,   -0.0000,    0.0091,   -0.0000},
+    { 0.0000,   -0.0000,    0.0434,    0.0000,    0.0000,    0.0138},
+};
+
+static float K_dlqr_10_10[NUM_CTRL][NUM_STATE] = {
+    { 0.0305,    0.0001,   -0.0000,    0.0089,    0.0000,    0.0000},
+    {-0.0001,    0.0314,   -0.0000,   -0.0000,    0.0091,   -0.0000},
+    { 0.0000,   -0.0000,    0.0434,    0.0000,   -0.0000,    0.0138},
+};
+
+auto *K_dlqr;
+K_dlqr = &K_dlqr_0_0;
 
 void controllerLqrReducedInit(void)
 {
@@ -79,9 +99,22 @@ void controllerLqrReduced(control_t *control, setpoint_t *setpoint,
   int i = 0, j = 0; 
   float res = 0;
 
+  // gain scheduling
+  if (5 < setpoint->attitude.roll < 15) {
+    if (5 < setpoint->attitude.pitch < 15) {
+      K_dlqr = &K_dlqr_10_10;
+    } else if (-5 < setpoint->attitude.pitch < 5) {
+      K_dlqr = &K_dlqr_10_0;
+    }
+  } else if (-5 < setpoint->attitude.roll < 5) {
+    if (5 < setpoint->attitude.pitch < 15) {
+      K_dlqr = &K_dlqr_0_10;
+    }
+  }
+
   while (i < NUM_CTRL){
     while (j < NUM_STATE){
-      res += K_dlqr[i][j] * error[j];
+      res += *K_dlqr[i][j] * error[j];
       j++;
     }
 
