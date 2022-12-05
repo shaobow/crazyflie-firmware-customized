@@ -114,14 +114,14 @@ void controllerLqr(control_t *control, setpoint_t *setpoint,
   float res = 0;
 
   // gain scheduling
-  if (5 < setpoint->attitude.roll < 15) {
-    if (5 < setpoint->attitude.pitch < 15) {
+  if (5 < state->attitude.roll < 15) {
+    if (5 < state->attitude.pitch < 15) {
       K_dlqr = &K_dlqr_10_10;
-    } else if (-5 < setpoint->attitude.pitch < 5) {
+    } else if (-5 < state->attitude.pitch < 5) {
       K_dlqr = &K_dlqr_10_0;
     }
-  } else if (-5 < setpoint->attitude.roll < 5) {
-    if (5 < setpoint->attitude.pitch < 15) {
+  } else if (-5 < state->attitude.roll < 5) {
+    if (5 < state->attitude.pitch < 15) {
       K_dlqr = &K_dlqr_0_10;
     }
   }
