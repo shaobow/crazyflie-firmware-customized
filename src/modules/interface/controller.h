@@ -34,6 +34,7 @@ typedef enum {
   ControllerTypeMellinger,
   ControllerTypeINDI,
   ControllerTypeBrescianini,
+  ControllerTypeLqr,
   ControllerType_COUNT,
 } ControllerType;
 
