@@ -22,10 +22,23 @@ static float err_z = 0.0;
 static float err_roll = 0.0;
 static float err_pitch = 0.0;
 
-static float coeff = 0.0;
-
 #define NUM_STATE 12
 #define NUM_CTRL 4
+
+// init flag
+static bool isInit = false;
+
+void controllerLqrInit(void) {
+    if (isInit) {
+    return;
+  }
+
+  isInit = true;
+}
+
+#define LQR_UPDATE_RATE RATE_250_HZ
+
+bool controllerLqrTest(void) { return isInit; }
 
 static float K_dlqr[NUM_CTRL][NUM_STATE] = {
     {1.2582, -1.7788, 4.7904, -0.1549, 0.0516, 0.0006, 0.3540, -0.5002, 1.3885,
@@ -37,26 +50,20 @@ static float K_dlqr[NUM_CTRL][NUM_STATE] = {
     {0.0452, 0.0197, -0.0121, -0.0249, 0.0322, 0.1083, 0.0311, 0.0103, -0.0117,
      0, 0, 0.0138}};
 
-void controllerLqrInit(void) {}
-
-bool controllerLqrTest(void) { return true; }
-
 void controllerLqr(control_t *control, setpoint_t *setpoint,
                    const sensorData_t *sensors, const state_t *state,
                    const uint32_t tick) {
-  float const deg2rad = M_PI_F / 180.0f;
-  coeff = deg2rad;
 
   control->controlMode = controlModeForceTorque;
   setpoint->mode.z = modeAbs;
   setpoint->mode.yaw = modeVelocity;
 
-  if (RATE_DO_EXECUTE(ATTITUDE_RATE, tick)) {
+  if (RATE_DO_EXECUTE(LQR_UPDATE_RATE, tick)) {
     // using sensor info for state estimation of dotRoll, dotPitch, and dotYaw
     // gyro unit: rad/sec
-    float state_rateRoll = sensors->gyro.x * deg2rad;
-    float state_ratePitch = -sensors->gyro.y * deg2rad;
-    float state_rateYaw = sensors->gyro.z * deg2rad;
+    float state_rateRoll = radians(sensors->gyro.x);
+    float state_ratePitch = radians(sensors->gyro.y);
+    float state_rateYaw = radians(sensors->gyro.z);
 
     float u[NUM_CTRL] = {0.0f};
     float error[NUM_STATE] = {0.0f};
@@ -67,9 +74,9 @@ void controllerLqr(control_t *control, setpoint_t *setpoint,
     error[2] = setpoint->position.z - state->position.z;
 
     // error rpy [rad]
-    error[3] = (setpoint->attitude.roll - state->attitude.roll) * deg2rad;
-    error[4] = (setpoint->attitude.pitch + state->attitude.pitch) * deg2rad;
-    error[5] = (setpoint->attitude.yaw - state->attitude.yaw) * deg2rad;
+    error[3] = radians(setpoint->attitude.roll - state->attitude.roll);
+    error[4] = radians(setpoint->attitude.pitch + state->attitude.pitch);
+    error[5] = radians(setpoint->attitude.yaw - state->attitude.yaw);
 
     // error vx vy vz [m/s]
     error[6] = setpoint->velocity.x - state->velocity.x;
@@ -77,9 +84,9 @@ void controllerLqr(control_t *control, setpoint_t *setpoint,
     error[8] = setpoint->velocity.z - state->velocity.z;
 
     // error vr vp vy [rad/s]
-    error[9] = setpoint->attitudeRate.roll * deg2rad - state_rateRoll;
-    error[10] = setpoint->attitudeRate.pitch * deg2rad - state_ratePitch;
-    error[11] = setpoint->attitudeRate.yaw * deg2rad - state_rateYaw;
+    error[9] = radians(setpoint->attitudeRate.roll) - state_rateRoll;
+    error[10] = radians(setpoint->attitudeRate.pitch) - state_ratePitch;
+    error[11] = radians(setpoint->attitudeRate.yaw) - state_rateYaw;
 
     // matrix multiplication
     float res = 0.0f;
@@ -93,9 +100,15 @@ void controllerLqr(control_t *control, setpoint_t *setpoint,
 
     // feedback
     control->thrustSi = u[0] + CF_MASS * 9.81f;
-    control->torqueX = u[1];
-    control->torqueY = u[2];
-    control->torqueZ = u[3];
+    if(control->thrustSi > 0){
+      control->torqueX = u[1];
+      control->torqueY = u[2];
+      control->torqueZ = u[3];
+    }else{
+      control->torqueX = 0.0f;
+      control->torqueY = 0.0f;
+      control->torqueZ = 0.0f;
+    }
 
     // log values
     cmd_thrust = control->thrustSi;
@@ -143,10 +156,4 @@ LOG_ADD(LOG_FLOAT, err_roll, &err_roll)
  * @brief Pitch error
  */
 LOG_ADD(LOG_FLOAT, err_pitch, &err_pitch)
-
-// LOG_ADD(LOG_FLOAT, des_z, &des_z)
-// LOG_ADD(LOG_FLOAT, des_roll, &des_roll)
-// LOG_ADD(LOG_FLOAT, des_pitch, &des_pitch)
-
-LOG_ADD(LOG_FLOAT, coeff, &coeff)
 LOG_GROUP_STOP(ctrlLqr)
