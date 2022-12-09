@@ -19,7 +19,7 @@ static void initController();
 typedef struct {
   void (*init)(void);
   bool (*test)(void);
-  void (*update)(control_t *control, setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const uint32_t tick);
+  void (*update)(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const uint32_t tick);
   const char* name;
 } ControllerFcns;
 
@@ -69,7 +69,7 @@ void controllerInit(ControllerType controller) {
   DEBUG_PRINT("Using %s (%d) controller\n", controllerGetName(), currentController);
 }
 
-ControllerType getControllerType(void) {
+ControllerType controllerGetType(void) {
   return currentController;
 }
 
@@ -81,7 +81,7 @@ bool controllerTest(void) {
   return controllerFunctions[currentController].test();
 }
 
-void controller(control_t *control, setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const uint32_t tick) {
+void controller(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const uint32_t tick) {
   controllerFunctions[currentController].update(control, setpoint, sensors, state, tick);
 }
 
