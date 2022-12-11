@@ -5,10 +5,14 @@
 #include "stabilizer_types.h"
 
 #include "FreeRTO.h"
+#include "task.h"
 
-static bool flag_start_fall = false;
+#define DEBUG_MODULE "FREE_THROW"
+#include "debug.h"
+
+// static bool flag_start_fall = false;
 static int cnt = 0;
-static float height = 0.0f;
+static float traj_height = 0.0f;
 
 static const float acc_tolerance = 0.1; // [Gs]
 static const int max_cnt = 50; // 0.1 [s]
@@ -22,21 +26,23 @@ static enum StateCF{
     LANDING = 3,
 } sCF;
 
-setTrajSetpoint(setpoint_t *setpoint, float height){
+setTrajSetpoint(setpoint_t *setpoint, float traj_height){
     setpoint->mode.z = modeAbs;
-    setpoint->position.z = height; 
+    setpoint->position.z = traj_height; 
 }
 
 void appMain(){
-    setpoint_t setpoint; //
+    setpoint_t setpoint; 
     float estAz;
     float estPoseZ;
 
     // Getting Logging ID of the state estimates 
     logVarId_t idStabilizerAz = logGetVarId("stabilizer", "az"); // state->acc.z (TODO: may not be the LOG_FLOAT)
     logVarId_t idStabilizerPosZ = logGetVarId("stabilizer", "z"); // state->position.z
-
+    
     sCF = IDLE; 
+
+    DEBUG_PRINT("Entering free throw cycle...\n");
 
     while(1){
         estAz = logGetFloat(idStablizerAz);
@@ -78,7 +84,7 @@ void appMain(){
         }
 
         if(cnt > max_cnt){
-            height = estPoseZ - 0.02f;
+            traj_height = estPoseZ - 0.02f;
             flag_start_fall = true;
         } else {
             vTaskDelay(M2T(10)); // TODO: set to 500_hz
@@ -86,7 +92,7 @@ void appMain(){
     }
 
     while(flag_start_fall){
-        setTrajSetpoint(&setpoint, height); // TODO: set traj
+        setTrajSetpoint(&setpoint, traj_height); // TODO: set traj
         commanderSetpoint(&setpoint, 3); // TODO: commanding highLevel_commander 
 
         estPoseZ = logGetFloat(idStabilizerPoseZ);
