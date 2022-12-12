@@ -28,15 +28,9 @@ static bool isInit = false;
 // status check
 static bool leave_ground = false;
 // static bool start_fall = false;
-// static int cnt = 0;
-// static float height = 0.0f;
 
 // use full state flag
 #define FULL_STATE 1
-
-// tune variable
-static float acc_tol = 0.1; // [Gs]
-static int max_cnt = 50; // 0.1 [s]
 
 void controllerLqrReset(void) {
   isInit = false;
@@ -111,21 +105,7 @@ void controllerLqr(control_t *control, const setpoint_t *setpoint,
     }
   }
 
-  // if(RATE_DO_EXECUTE(RATE_500_HZ, tick) && !start_fall){
-  //   if((state->acc.z > -1.0f - acc_tol) && (state->acc.z < -1.0f + acc_tol)){
-  //     cnt++;
-  //   }else{
-  //     cnt = 0;
-  //     start_fall = false;
-  //   }
-
-  //   if(cnt > max_cnt){
-  //     height = state->position.z - 0.02f;
-  //     start_fall = true;
-  //   }
-  // }
-
-  // if(RATE_DO_EXECUTE(RATE_50_HZ, tick)){
+  // if(RATE_DO_EXECUTE(RATE_50_HZ, tick) && start_fall){
   //     height -= 0.001f;
   //     if(height <= 0.05f || state->position.z <= 0.05f){
   //       control->thrustSi = 0.0f;
@@ -307,16 +287,16 @@ void controllerLqr(control_t *control, setpoint_t *setpoint,
  * Tuning settings for LQR controller
  */
 
-PARAM_GROUP_START(ctrlLqr)
-/**
- * @brief LQR acceleration tolerance [m/s^2]
- */
-PARAM_ADD(PARAM_FLOAT, acc_tol, &acc_tol)
-/**
- * @brief LQR max counter number
- */
-PARAM_ADD(PARAM_INT8, max_cnt, &max_cnt)
-PARAM_GROUP_STOP(ctrlLqr)
+// PARAM_GROUP_START(ctrlLqr)
+// /**
+//  * @brief LQR acceleration tolerance [m/s^2]
+//  */
+// // PARAM_ADD(PARAM_FLOAT, acc_tol, &acc_tol)
+// /**
+//  * @brief LQR max counter number
+//  */
+// // PARAM_ADD(PARAM_INT8, max_cnt, &max_cnt)
+// PARAM_GROUP_STOP(ctrlLqr)
 
 /**
  * Logging variables for the command and reference signals for the
