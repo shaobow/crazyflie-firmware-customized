@@ -1,37 +1,10 @@
-/**
- * ,---------,       ____  _ __
- * |  ,-^-,  |      / __ )(_) /_______________ _____  ___
- * | (  O  ) |     / __  / / __/ ___/ ___/ __ `/_  / / _ \
- * | / ,--´  |    / /_/ / / /_/ /__/ /  / /_/ / / /_/  __/
- *    +------`   /_____/_/\__/\___/_/   \__,_/ /___/\___/
- *
- * Crazyflie control firmware
- *
- * Copyright (C) 2019 Bitcraze AB
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, in version 3.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
- *
- *
- * internal_log_param_api.c - App layer application of the internal log
- *  and param api  
- */
-
-
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
 
 #include "app.h"
+
+#include "commander.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -55,8 +28,11 @@ static const int max_cnt_LANDING = 50; // total 1 [s]
 static int cnt_IDLE;
 static int cnt_INAIR;
 static int cnt_LANDING;
+
 static float estAz;
 static float estZ;
+
+static float setpoint_height; // [m]
 
 typedef enum {
   IDLE, 
@@ -68,9 +44,17 @@ typedef enum {
 
 static StateCF sCF = IDLE;
 
+static void setSetpoint(setpoint_t *setpoint, float z){
+  setpoint->mode.z = modeAbs;
+  setpoint->mode.yaw = modeVelocity;
+  setpoint->position.z = z;
+}
+
 void appMain()
 {
-  paramVarId_t idFlag_start_fall = paramGetVarId("ctrlLqr", "start_fall");
+  setpoint_t setpoint; 
+
+  paramVarId_t idFlag_start_fall = paramGetVarId("ctrlLqr", "f_start_fall");
   uint8_t flag_start_fall = 0;
 
   /* Getting logging ID of the state estimates */
@@ -80,6 +64,8 @@ void appMain()
   cnt_INAIR = 0;
   cnt_LANDING = 0;
   sCF = IDLE;
+
+  setpoint_height = 0.5; // [m]
 
   DEBUG_PRINT("Entering free throw cycle... \n");
 
@@ -112,6 +98,9 @@ void appMain()
 
         break;
       case INAIR:
+        setSetpoint(&setpoint, setpoint_height);
+        commanderSetSetpoint(&setpoint, 3);
+
         /* stabilized for certain time */
         if((estAz > 0.0f - acc_tolerance) && (estAz < 0.0f + acc_tolerance)){
           cnt_INAIR ++;
@@ -126,8 +115,12 @@ void appMain()
         
         break;
       case LANDING:
+        setSetpoint(&setpoint, setpoint_height);
+        commanderSetSetpoint(&setpoint, 3);
+
         /* if lower to an evalation smaller than pos_tolerance */
         if(estZ < pos_tolerance){
+          setpoint_height -= 0.001f;
           cnt_LANDING++;
         } else {
           cnt_LANDING = 0;
@@ -138,6 +131,7 @@ void appMain()
           cnt_LANDING = 0;
           flag_start_fall = 0;
           paramSetInt(idFlag_start_fall, 0);
+          setpoint_height = 0.5;
           sCF = IDLE;
         }
 
@@ -165,5 +159,6 @@ LOG_ADD(LOG_UINT8, sCF, &sCF)
 LOG_ADD(LOG_UINT8, cnt_IDLE, &cnt_IDLE)
 LOG_ADD(LOG_UINT8, cnt_INAIR, &cnt_INAIR)
 LOG_ADD(LOG_UINT8, cnt_LANDING, &cnt_LANDING)
+LOG_ADD(LOG_FLOAT, setpoint_height, &setpoint_height)
 LOG_GROUP_STOP(appFreeThrow)
 
