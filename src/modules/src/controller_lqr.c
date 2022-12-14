@@ -22,21 +22,25 @@ static float err_z = 0.0;
 static float err_roll = 0.0;
 static float err_pitch = 0.0;
 
-// init flag
+// init and status flag
 static bool isInit = false;
-
-// status check
-static bool leave_ground = false;
 // static bool start_fall = false;
+static int f_start_fall;
+static int cnt = 0;
+static float height = 0.0f;
 
 // use full state flag
 #define FULL_STATE 1
 
+// tune variable
+static float acc_tol = 0.1; // [Gs]
+static int max_cnt = 50; // 0.1 [s]
+
 void controllerLqrReset(void) {
   isInit = false;
   // start_fall = false;
-  // height = 0.0f;
-  // cnt = 0;
+  height = 0.0f;
+  cnt = 0;
 }
 
 void controllerLqrInit(void) {
@@ -45,7 +49,6 @@ void controllerLqrInit(void) {
   }
 
   isInit = true;
-  leave_ground = false;
 }
 
 #define LQR_UPDATE_RATE RATE_500_HZ
@@ -91,34 +94,44 @@ static float K_dlqr[NUM_CTRL][NUM_STATE] = {
   {0.000928,	0.000000,	0.000000,	0.000000,	0.006054,	0.000000,	0.001417,	0.000000,	0.000000,	-0.000000,	0.001018,	0.000000},
   {0.000000,	-0.000000,	-0.000000,	0.000000,	-0.000000,	0.009470,	-0.000000,	-0.000000,	-0.000000,	0.000000,	0.000000,	0.001144}};
 
-void controllerLqr(control_t *control, const setpoint_t *setpoint,
+void controllerLqr(control_t *control, setpoint_t *setpoint,
                    const sensorData_t *sensors, const state_t *state,
                    const uint32_t tick) {
 
   control->controlMode = controlModeForceTorque;
 
-  if(RATE_DO_EXECUTE(RATE_100_HZ, tick)){
-    if(setpoint->position.z >= 0.02f){
-      leave_ground = true;
-    }else{
-      leave_ground = false;
-    }
-  }
+  // if(RATE_DO_EXECUTE(RATE_500_HZ, tick) && f_start_fall == 0){
+  //   if((state->acc.z > -1.0f - acc_tol) && (state->acc.z < -1.0f + acc_tol)){
+  //     cnt++;
+  //   }else{
+  //     cnt = 0;
+  //     start_fall = false;
+  //   }
 
-  // if(RATE_DO_EXECUTE(RATE_50_HZ, tick) && start_fall){
-  //     height -= 0.001f;
-  //     if(height <= 0.05f || state->position.z <= 0.05f){
-  //       control->thrustSi = 0.0f;
-  //       control->torqueX = 0.0f;
-  //       control->torqueY = 0.0f;
-  //       control->torqueZ = 0.0f;
-  //       controllerLqrReset();
-  //     }
-  //     setpoint->mode.z = modeAbs;
-  //     setpoint->position.z = height;
+  //   if(cnt > max_cnt){
+  //     height = state->position.z - 0.02f;
+  //     start_fall = true;
+  //   }
   // }
 
-  if (RATE_DO_EXECUTE(LQR_UPDATE_RATE, tick) && leave_ground) {
+  if(RATE_DO_EXECUTE(RATE_50_HZ, tick) && f_start_fall == 1){
+      height -= 0.001f;
+      if(height <= 0.05f || state->position.z <= 0.05f){
+        control->thrustSi = 0.0f;
+        control->torqueX = 0.0f;
+        control->torqueY = 0.0f;
+        control->torqueZ = 0.0f;
+        controllerLqrReset();
+      }
+      setpoint->mode.z = modeAbs;
+      setpoint->position.z = height;
+  }
+
+  if (RATE_DO_EXECUTE(LQR_UPDATE_RATE, tick)) {
+    // update height setpoint
+    setpoint->mode.z = modeAbs;
+    setpoint->position.z = height;
+
     // using sensor info for state estimation of dotRoll, dotPitch, and dotYaw
     // gyro unit: rad/sec
     float state_rateRoll = radians(sensors->gyro.x);
@@ -287,16 +300,17 @@ void controllerLqr(control_t *control, setpoint_t *setpoint,
  * Tuning settings for LQR controller
  */
 
-// PARAM_GROUP_START(ctrlLqr)
-// /**
-//  * @brief LQR acceleration tolerance [m/s^2]
-//  */
-// // PARAM_ADD(PARAM_FLOAT, acc_tol, &acc_tol)
-// /**
-//  * @brief LQR max counter number
-//  */
-// // PARAM_ADD(PARAM_INT8, max_cnt, &max_cnt)
-// PARAM_GROUP_STOP(ctrlLqr)
+PARAM_GROUP_START(ctrlLqr)
+/**
+ * @brief LQR acceleration tolerance [m/s^2]
+ */
+PARAM_ADD(PARAM_FLOAT, acc_tol, &acc_tol)
+/**
+ * @brief LQR max counter number
+ */
+PARAM_ADD(PARAM_INT8, max_cnt, &max_cnt)
+PARAM_ADD(PARAM_INT8, f_start_fall, &f_start_fall)
+PARAM_GROUP_STOP(ctrlLqr)
 
 /**
  * Logging variables for the command and reference signals for the
@@ -332,12 +346,12 @@ LOG_ADD(LOG_FLOAT, err_roll, &err_roll)
  * @brief Pitch error
  */
 LOG_ADD(LOG_FLOAT, err_pitch, &err_pitch)
-// /**
-//  * @brief start fall flag
-//  */
-// LOG_ADD(LOG_INT8, start_fall, &start_fall)
-// /**
-//  * @brief current set point height
-//  */
-// LOG_ADD(LOG_FLOAT, height, &height)
+/**
+ * @brief start fall flag
+ */
+LOG_ADD(LOG_INT8, f_start_fall, &f_start_fall)
+/**
+ * @brief current set point height
+ */
+LOG_ADD(LOG_FLOAT, height, &height)
 LOG_GROUP_STOP(ctrlLqr)
