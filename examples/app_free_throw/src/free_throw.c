@@ -70,9 +70,8 @@ static StateCF sCF = IDLE;
 
 void appMain()
 {
-  // paramVarId_t idEstimator = paramGetVarId("stabilizer", "estimator");
-  // uint8_t estimator_type = 0;
-
+  paramVarId_t idFlag_start_fall = paramGetVarId("ctrlLqr", "start_fall");
+  uint8_t flag_start_fall = 0;
 
   /* Getting logging ID of the state estimates */
   logVarId_t idAz = logGetVarId("stateEstimate", "az");
@@ -85,13 +84,16 @@ void appMain()
   DEBUG_PRINT("Entering free throw cycle... \n");
 
   while(1) {
-    vTaskDelay(M2T(20)); // 20 msec
+    vTaskDelay(M2T(20)); // 20 msec (50Hz)
 
     /* Read data from stateEstimator */
     estAz = logGetFloat(idAz);
     estZ = logGetFloat(idZ);
     DEBUG_PRINT("az: %f ; ", (double) estAz);
     DEBUG_PRINT("z: %f \n", (double) estZ);
+
+    /* Get parameter value for debugging */
+    // flag_start_fall = paramGetVarId(idFlag_start_fall); 
 
     switch(sCF) {
       case IDLE:
@@ -104,6 +106,7 @@ void appMain()
 
         if(cnt_IDLE > max_cnt_IDLE) {
           cnt_IDLE = 0;
+          paramSetInt(idFlag_start_fall, 1);
           sCF = INAIR;
         }
 
@@ -133,6 +136,8 @@ void appMain()
         if(cnt_LANDING > max_cnt_LANDING) {
           // TODO: shut off for a hard land 
           cnt_LANDING = 0;
+          flag_start_fall = 0;
+          paramSetInt(idFlag_start_fall, 0);
           sCF = IDLE;
         }
 
@@ -140,8 +145,6 @@ void appMain()
       default:
         DEBUG_PRINT("** SOMETHING WRONG ** \n");
     }
-
-    // DEBUG_PRINT("cnt: %d ; state of CF: %d \n", cnt, sCF);
 
     // // Set a parameter value 
     // //  Note, this will influence the flight quality if you change estimator
@@ -152,9 +155,7 @@ void appMain()
 }
 
 // PARAM_GROUP_START(appFreeThrow)
-// PARAM_ADD(PARAM_UINT8, goLeft, &goLeft)
-// PARAM_ADD(PARAM_FLOAT, distanceWall, &distanceToWall)
-// PARAM_ADD(PARAM_FLOAT, maxSpeed, &maxForwardSpeed)
+// PARAM_ADD(PARAM_UINT8, start_fall, &start_fall)
 // PARAM_GROUP_STOP(appFreeThrow)
 
 LOG_GROUP_START(appFreeThrow)
