@@ -21,9 +21,14 @@ static const float acc_tolerance = 0.1; // [Gs]
 static const float pos_tolerance = 0.05; // [m]
 
 // NOTE: CANNOT BE smaller than 1
+static const int time_delay = 20;
 static const int max_cnt_IDLE = 5; // total 0.1   [s]
 static const int max_cnt_INAIR = 100; // total 2  [s]
 static const int max_cnt_LANDING = 50; // total 1 [s]
+
+static const float g = 9.81; 
+// static const float height_free_fall = (float) 0.5 * time_delay/1000 * (g^2); 
+static const float height_free_fall = 0.001962; // [m]
 
 static int cnt_IDLE;
 static int cnt_INAIR;
@@ -55,7 +60,6 @@ void appMain()
   setpoint_t setpoint; 
 
   paramVarId_t idFlag_start_fall = paramGetVarId("ctrlLqr", "f_start_fall");
-  uint8_t flag_start_fall = 0;
 
   /* Getting logging ID of the state estimates */
   logVarId_t idAz = logGetVarId("stateEstimate", "az");
@@ -65,18 +69,14 @@ void appMain()
   cnt_LANDING = 0;
   sCF = IDLE;
 
-  setpoint_height = 0.5; // [m]
-
   DEBUG_PRINT("Entering free throw cycle... \n");
 
   while(1) {
-    vTaskDelay(M2T(20)); // 20 msec (50Hz)
+    vTaskDelay(M2T(time_delay)); // 20 msec (50Hz)
 
     /* Read data from stateEstimator */
     estAz = logGetFloat(idAz);
     estZ = logGetFloat(idZ);
-    DEBUG_PRINT("az: %f ; ", (double) estAz);
-    DEBUG_PRINT("z: %f \n", (double) estZ);
 
     /* Get parameter value for debugging */
     // flag_start_fall = paramGetVarId(idFlag_start_fall); 
@@ -91,16 +91,21 @@ void appMain()
         }
 
         if(cnt_IDLE > max_cnt_IDLE) {
+          /* reset */
           cnt_IDLE = 0;
+
+          /* send CF command */
           paramSetInt(idFlag_start_fall, 1);
+          setpoint_height = estZ - height_free_fall;
+          setSetpoint(&setpoint, setpoint_height);
+          commanderSetSetpoint(&setpoint, 3);
+
+          /* switch state */
           sCF = INAIR;
         }
 
         break;
       case INAIR:
-        setSetpoint(&setpoint, setpoint_height);
-        commanderSetSetpoint(&setpoint, 3);
-
         /* stabilized for certain time */
         if((estAz > 0.0f - acc_tolerance) && (estAz < 0.0f + acc_tolerance)){
           cnt_INAIR ++;
@@ -109,29 +114,38 @@ void appMain()
         }
 
         if(cnt_INAIR > max_cnt_INAIR) {
+          /* reset */
           cnt_INAIR = 0;
+
+          /* switch state */
           sCF = LANDING;
         }
         
         break;
       case LANDING:
+        /* send CF command */
+        setpoint_height -= 0.001f;
         setSetpoint(&setpoint, setpoint_height);
         commanderSetSetpoint(&setpoint, 3);
 
         /* if lower to an evalation smaller than pos_tolerance */
         if(estZ < pos_tolerance){
-          setpoint_height -= 0.001f;
           cnt_LANDING++;
         } else {
           cnt_LANDING = 0;
         }
 
         if(cnt_LANDING > max_cnt_LANDING) {
-          // TODO: shut off for a hard land 
+          /* reset */
           cnt_LANDING = 0;
-          flag_start_fall = 0;
+
+          /* send CF command */
           paramSetInt(idFlag_start_fall, 0);
-          setpoint_height = 0.5;
+          setpoint_height = 0;
+          setSetpoint(&setpoint, setpoint_height);
+          commanderSetSetpoint(&setpoint, 3);
+
+          /* switch state */
           sCF = IDLE;
         }
 
@@ -139,12 +153,9 @@ void appMain()
       default:
         DEBUG_PRINT("** SOMETHING WRONG ** \n");
     }
-
-    // // Set a parameter value 
-    // //  Note, this will influence the flight quality if you change estimator
-    // uint8_t new_value = 2;
-    // paramSetInt(idEstimator, new_value);
     
+    // DEBUG_PRINT("az: %f ; ", (double) estAz);
+    // DEBUG_PRINT("z: %f \n", (double) estZ);
   }
 }
 
