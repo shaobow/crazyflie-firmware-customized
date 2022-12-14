@@ -1,1 +1,1 @@
-obj-y += app_free_throw.o
+obj-y += free_throw.o
