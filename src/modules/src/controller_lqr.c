@@ -4,6 +4,7 @@
  */
 
 #include "controller_lqr.h"
+#include "position_controller.h"
 
 #include "log.h"
 #include "math.h"
@@ -21,6 +22,7 @@ static float cmd_yaw = 0.0;
 static float err_z = 0.0;
 static float err_roll = 0.0;
 static float err_pitch = 0.0;
+static int gain_type = 0;
 
 // init flag
 static bool isInit = false;
@@ -45,6 +47,26 @@ void controllerLqrReset(void) {
   // cnt = 0;
 }
 
+typedef enum {
+  K_0_0 = 0,
+  K_15_0,
+  K_n15_0,
+  K_0_15,
+  K_0_n15,
+  K_15_15,
+  K_n15_n15,
+  K_15_n15,
+  K_n15_15,
+  K_count,
+} gain_types;
+
+#define LQR_UPDATE_RATE RATE_500_HZ
+
+#ifdef FULL_STATE
+
+#define NUM_STATE 12
+#define NUM_CTRL 4
+
 void controllerLqrInit(void) {
   if (isInit) {
     return;
@@ -54,48 +76,71 @@ void controllerLqrInit(void) {
   leave_ground = false;
 }
 
-#define LQR_UPDATE_RATE RATE_500_HZ
-
-#ifdef FULL_STATE
-
-#define NUM_STATE 12
-#define NUM_CTRL 4
-
 bool controllerLqrTest(void) { return isInit; }
 
-// static float K_dlqr_0_0[NUM_CTRL][NUM_STATE] = {
-//     {-0.0000,    0.0000,    6.3246,   -0.0000,   -0.0000,    0.0000,   -0.0000,    0.0000,    2.3112,   -0.0000,   -0.0000,    0.0000},
-//     { 0.0000,   -3.8730,    0.0000,   14.6873,    0.0000,    0.0000,    0.0000,   -3.5492,    0.0000,    2.2362,    0.0000,    0.0000},
-//     { 3.8730,    0.0000,    0.0000,    0.0000,   14.6873,    0.0000,    3.5492,   -0.0000,    0.0000,    0.0000,    2.2362,    0.0000},
-//     { 0.0000,    0.0000,   -0.0000,   -0.0000,    0.0000,    7.0711,    0.0000,    0.0000,    0.0000,   -0.0000,    0.0000,    1.0002},
+// LQR controller with abs(15) angles linearization points
+static float K_dlqr_0_0[NUM_CTRL][NUM_STATE] = {
+    { 0.000000,	 0.000000,	 3.102058,	-0.000000,	 0.000000,	0.000000,	 -0.000000,	 0.000000,	 0.513555,	-0.000000,	0.000000,	 -0.000000},
+    {-0.000000,	-0.000927,	-0.000000,	 0.006036,	-0.000000,	0.000000,	 -0.000000,	-0.001414,	-0.000000,	 0.001013,	-0.000000,	0.000000},
+    { 0.000928,	 0.000000,	 0.000000,	 0.000000,	 0.006054,	0.000000,	  0.001417,	 0.000000,	 0.000000,	-0.000000,	 0.001018,	0.000000},
+    { 0.000000,	-0.000000,	-0.000000,	 0.000000,	-0.000000,	0.009470,	 -0.000000,	-0.000000,	-0.000000,	 0.000000,	 0.000000,	0.001144},
+};
+
+// static float K_dlqr_15_0[NUM_CTRL][NUM_STATE] = {
+//     { 0.000000,	-0.013804,	-3.081250,	-0.257388,	 0.000000,	-0.000000,	 0.000000,	-0.015973,	-0.550766,	-0.002838,	 0.000000,	-0.000000},
+//     {-0.000000,	-0.000916,	 0.003985,	 0.007820,	-0.000000,	 0.000000,	-0.000000,	-0.001297,	 0.001774,	 0.001036,	 0.000000,	 0.000000},
+//     { 0.000855,	 0.000000,	-0.000000,	-0.000000,	 0.005765,	-0.001173,	 0.001296,	 0.000000,	-0.000000,	 0.000000,	 0.001014,	-0.000021},
+//     {-0.000368,	 0.000000,	 0.000000,	 0.000000,	-0.001047,	 0.009931,	-0.000522,	-0.000000,	 0.000000,	 0.000000,	-0.000014,	 0.001152},
 // };
 
-// static float K_dlqr_10_0[NUM_CTRL][NUM_STATE] = {
-//     {-0.0000,   -0.3913,    6.2922,    0.0056,   -0.0000,    0.0000,   -0.0000,   -0.1204,    2.2982,    0.0000,   -0.0000,    0.0000},
-//     { 0.0000,   -3.8532,   -0.6389,   14.7752,    0.0000,    0.0000,    0.0000,   -3.4995,   -0.6170,    2.2362,    0.0000,    0.0000},
-//     { 3.7445,   -0.0000,   -0.0000,    0.0000,   14.3896,    0.6976,    3.4074,   -0.0000,   -0.0000,    0.0000,    2.2362,    0.0000},
-//     { 0.9893,   -0.0000,   -0.0000,    0.0000,    1.5597,    7.2379,    0.8303,   -0.0000,   -0.0000,    0.0000,    0.0000,    1.0002},
+// static float K_dlqr_n15_0[NUM_CTRL][NUM_STATE] = {
+//     {-0.000000,	 0.013804,	-3.081250,	 0.257388,	-0.000000,	-0.000000,	-0.000000,	 0.015973,	-0.550766,	 0.002838,	-0.000000,	-0.000000},
+//     {-0.000000,	-0.000916,	-0.003985,	 0.007820,	-0.000000,	-0.000000,	-0.000000,	-0.001297,	-0.001774,	 0.001036,   0.000000,	-0.000000},
+//     { 0.000855,	 0.000000,	 0.000000,	-0.000000,	 0.005765,	 0.001173,	 0.001296,	 0.000000,	 0.000000,	 0.000000,	 0.001014,	 0.000021},
+//     { 0.000368,	-0.000000,	 0.000000,	-0.000000,	 0.001047,	 0.009931,	 0.000522,	 0.000000,	 0.000000,	-0.000000,	 0.000014,	 0.001152},
 // };
 
-// static float K_dlqr_0_10[NUM_CTRL][NUM_STATE] = {
-//     { 0.3853,    0.0000,    6.2932,   -0.0000,    0.0483,   -0.0000,    0.1184,    0.0000,    2.2975,   -0.0000,    0.0000,   -0.0000},
-//     {-0.0000,   -3.7482,    0.0000,   14.3981,   -0.0000,   -0.6879,   -0.0000,   -3.4115,    0.0000,    2.2362,   -0.0000,   -0.0000},
-//     { 3.8538,   -0.0000,   -0.6291,    0.0000,   14.6179,   -0.0000,    3.5570,   -0.0000,   -0.6171,    0.0000,    2.2362,    0.0000},
-//     { 0.0000,    0.9752,   -0.0000,   -1.5379,    0.0000,    7.2330,    0.0000,    0.8186,   -0.0000,   -0.0000,    0.0000,    1.0002},
+// static float K_dlqr_0_15[NUM_CTRL][NUM_STATE] = {
+//     { 0.003220,	 0.000000,	 3.099925,	-0.000000,	 0.005598,	 0.000000,	 0.002431,	 0.000000,	 0.515888,	-0.000000,	 0.000080,	 0.000000},
+//     { 0.000000,	-0.000882,	-0.000000,	 0.005863,	-0.000000,	-0.000923,	 0.000000,	-0.001341,	-0.000000,	 0.001011,	-0.000000,	-0.000016},
+//     {-0.000928,	-0.000000,	 0.000961,	 0.000000,	 0.005570,	-0.000000,	-0.001500,	-0.000000,	 0.000990,	-0.000000,	 0.001011,	-0.000000},
+//     { 0.000000,	 0.000288,	 0.000000,	-0.000824,	-0.000000,	 0.009745,	 0.000000,	 0.000409,	-0.000000,	-0.000011,	-0.000000,	 0.001149},
 // };
 
-// static float K_dlqr_10_10[NUM_CTRL][NUM_STATE] = {
-//     {0.3834,   -0.3894,    6.2613,    0.0050,    0.0480,   -0.0000,    0.1178,   -0.1197,    2.2848,    0.0000,    0.0000,   -0.0000},
-//     {0.1025,   -3.7399,   -0.6370,   14.5095,    0.2607,   -0.6530,    0.1229,   -3.3761,   -0.6166,    2.2362,    0.0000,   -0.0000},
-//     {3.7271,   -0.0987,   -0.6249,    0.2607,   14.3269,    0.6756,    3.4164,   -0.1176,   -0.6134,    0.0000,    2.2362,    0.0000},
-//     {0.9755,    0.9230,   -0.0064,   -1.4600,    1.5105,    7.3849,    0.8172,    0.7607,   -0.0078,   -0.0000,    0.0000,    1.0002},
+// static float K_dlqr_0_n15[NUM_CTRL][NUM_STATE] = {
+//     {-0.003220,	-0.000000,	 3.099925,	0.000000,	-0.005598,	0.000000,	-0.002431,	-0.000000,	 0.515888,	 0.000000,	-0.000080,	0.000000},
+//     { 0.000000,	-0.000882,	 0.000000,	0.005863,	-0.000000,	0.000923,	 0.000000,	-0.001341,	 0.000000,	 0.001011,	-0.000000,	0.000016},
+//     {-0.000928,	-0.000000,	-0.000961,	0.000000,	 0.005570,	0.000000,	-0.001500,	-0.000000,	-0.000990,	-0.000000,	 0.001011,	0.000000},
+//     {-0.000000,	-0.000288,	 0.000000,	0.000824,	 0.000000,	0.009745,	-0.000000,	-0.000409,	-0.000000,	 0.000011,	 0.000000,	0.001149},
 // };
 
-static float K_dlqr[NUM_CTRL][NUM_STATE] = {
-  {0.000000,	0.000000,	3.102058,	-0.000000,	0.000000,	0.000000,	-0.000000,	0.000000,	0.513555,	-0.000000,	0.000000,	-0.000000},
-  {-0.000000,	-0.000927,	-0.000000,	0.006036,	-0.000000,	0.000000,	-0.000000,	-0.001414,	-0.000000,	0.001013,	-0.000000,	0.000000},
-  {0.000928,	0.000000,	0.000000,	0.000000,	0.006054,	0.000000,	0.001417,	0.000000,	0.000000,	-0.000000,	0.001018,	0.000000},
-  {0.000000,	-0.000000,	-0.000000,	0.000000,	-0.000000,	0.009470,	-0.000000,	-0.000000,	-0.000000,	0.000000,	0.000000,	0.001144}};
+// static float K_dlqr_15_15[NUM_CTRL][NUM_STATE] = {
+//     {-0.003785,	-0.013574,	-3.079436,	-0.258361,	-0.003480,	-0.007454,	-0.003379,	-0.015653,	-0.552433,	-0.002846,	-0.000052,	-0.000131},
+//     {-0.000054,	-0.000897,	 0.003962,	 0.007724,	 0.000174,	-0.000762,	-0.000093,	-0.001267,	 0.001811,	 0.001034,	 0.000002,	-0.000013},
+//     {-0.000821,	-0.000033,	 0.001000,	 0.000179,	 0.005213,	 0.001162,	-0.001311,	-0.000054,	 0.000911,	 0.000002,	 0.001006,	 0.000021},
+//     {-0.000436,	 0.000190,	-0.000020,	-0.000686,	 0.001037,	 0.010213,	-0.000646,	 0.000253,	 0.000224,	-0.000009,	 0.000014,	 0.001157},
+// };
+
+// static float K_dlqr_n15_n15[NUM_CTRL][NUM_STATE] = {
+//     { 0.003785,	 0.013574,	-3.079436,	0.258361,	 0.003480,	-0.007454,	 0.003379,	 0.015653,	-0.552433,	0.002846,  0.000052,	-0.000131},
+//     {-0.000054,	-0.000897,	-0.003962,	0.007724,	 0.000174,	 0.000762,	-0.000093,	-0.001267,	-0.001811,	0.001034,	 0.000002,	 0.000013},
+//     {-0.000821,	-0.000033,	-0.001000,	0.000179,	 0.005213,	-0.001162,	-0.001311,	-0.000054,	-0.000911,	0.000002,	 0.001006,	-0.000021},
+//     { 0.000436,	-0.000190,	-0.000020,	0.000686,	-0.001037,	 0.010213,	 0.000646,	-0.000253,	 0.000224,	0.000009,	-0.000014,	 0.001157},
+// };
+
+// static float K_dlqr_n15_15[NUM_CTRL][NUM_STATE] = {
+//     {-0.003785,	 0.013574,	-3.079436,	 0.258361,	-0.003480,	 0.007454,	-0.003379,	 0.015653,	-0.552433,	 0.002846,	-0.000052,	 0.000131},
+//     { 0.000054,	-0.000897,	-0.003962,	 0.007724,	-0.000174,	-0.000762,	 0.000093,	-0.001267,	-0.001811,	 0.001034,	-0.000002,	-0.000013},
+//     {-0.000821,	 0.000033,	 0.001000,	-0.000179,	 0.005213,	-0.001162,	-0.001311,	 0.000054,	 0.000911,	-0.000002,	 0.001006,	-0.000021},
+//     { 0.000436,	 0.000190,	 0.000020,	-0.000686,	-0.001037,	 0.010213,	 0.000646,	 0.000253,	-0.000224,	-0.000009,	-0.000014,	 0.001157},
+// };
+
+// static float K_dlqr_15_n15[NUM_CTRL][NUM_STATE] = {
+//     { 0.003785,	-0.013574,	-3.079436,	-0.258361,	 0.003480,	0.007454,	 0.003379,	-0.015653,	-0.552433,	-0.002846,	 0.000052,	0.000131},
+//     { 0.000054,	-0.000897,	 0.003962,	 0.007724,	-0.000174,	0.000762,	 0.000093,	-0.001267,	 0.001811,	 0.001034,	-0.000002,	0.000013},
+//     {-0.000821,	 0.000033,	-0.001000,	-0.000179,	 0.005213,	0.001162,	-0.001311,	 0.000054,	-0.000911,	-0.000002,	 0.001006,	0.000021},
+//     {-0.000436,	-0.000190,	 0.000020,	 0.000686,	 0.001037,	0.010213,	-0.000646,	-0.000253,	-0.000224,	 0.000009,	 0.000014,	0.001157},
+// };
 
 void controllerLqr(control_t *control, const setpoint_t *setpoint,
                    const sensorData_t *sensors, const state_t *state,
@@ -104,39 +149,16 @@ void controllerLqr(control_t *control, const setpoint_t *setpoint,
   control->controlMode = controlModeForceTorque;
 
   if(RATE_DO_EXECUTE(RATE_100_HZ, tick)){
-    if(setpoint->position.z >= 0.02f){
+    if(setpoint->position.z >= 0.01f){
       leave_ground = true;
     }else{
+      control->thrustSi = 0.0f;
+      control->torqueX = 0.0f;
+      control->torqueY = 0.0f;
+      control->torqueZ = 0.0f;
       leave_ground = false;
     }
   }
-
-  // if(RATE_DO_EXECUTE(RATE_500_HZ, tick) && !start_fall){
-  //   if((state->acc.z > -1.0f - acc_tol) && (state->acc.z < -1.0f + acc_tol)){
-  //     cnt++;
-  //   }else{
-  //     cnt = 0;
-  //     start_fall = false;
-  //   }
-
-  //   if(cnt > max_cnt){
-  //     height = state->position.z - 0.02f;
-  //     start_fall = true;
-  //   }
-  // }
-
-  // if(RATE_DO_EXECUTE(RATE_50_HZ, tick)){
-  //     height -= 0.001f;
-  //     if(height <= 0.05f || state->position.z <= 0.05f){
-  //       control->thrustSi = 0.0f;
-  //       control->torqueX = 0.0f;
-  //       control->torqueY = 0.0f;
-  //       control->torqueZ = 0.0f;
-  //       controllerLqrReset();
-  //     }
-  //     setpoint->mode.z = modeAbs;
-  //     setpoint->position.z = height;
-  // }
 
   if (RATE_DO_EXECUTE(LQR_UPDATE_RATE, tick) && leave_ground) {
     // using sensor info for state estimation of dotRoll, dotPitch, and dotYaw
@@ -169,21 +191,41 @@ void controllerLqr(control_t *control, const setpoint_t *setpoint,
     error[11] = radians(setpoint->attitudeRate.yaw) - state_rateYaw;
 
     // gain scheduling calculate K matrix
-    float* K = &K_dlqr[0][0];
-    // if(5 < state->attitude.roll < 15) {
-    //   if (5 < state->attitude.pitch < 15) {
-    //     K_dlqr_ptr = &K_dlqr_10_10;
-    //   } else if (-5 < state->attitude.pitch < 5) {
-    //     K_dlqr_ptr = &K_dlqr_10_0;
-    //   }else if(-15 < state->attitude.pitch < -5){
-        
-    //   }
-    // } else if(-5 < state->attitude.roll < 5) {
-    //   if (5 < state->attitude.pitch < 15) {
-    //     K_dlqr_ptr = &K_dlqr_0_10;
-    //   }
-    // } else if(-15 < state->attitude.roll < -5){
+    float* K = &K_dlqr_0_0[0][0];
 
+    // if(10 < state->attitude.roll && state->attitude.roll< 20) {
+    //   if (10 < state->attitude.pitch && state->attitude.pitch < 20) {
+    //     K = &K_dlqr_15_15[0][0];
+    //     gain_type = K_15_15;
+    //   } else if (-10 < state->attitude.pitch && state->attitude.pitch < 10) {
+    //     K = &K_dlqr_15_0[0][0];
+    //     gain_type = K_15_0;
+    //   }else if(-20 < state->attitude.pitch && state->attitude.pitch < -10){
+    //     K = &K_dlqr_15_n15[0][0];
+    //     gain_type = K_15_n15;
+    //   }
+    // } else if(-10 < state->attitude.roll && state->attitude.roll< 10) {
+    //   if (10 < state->attitude.pitch && state->attitude.pitch< 20) {
+    //     K = &K_dlqr_0_15[0][0];
+    //     gain_type = K_0_15;
+    //   } else if (-10 < state->attitude.pitch && state->attitude.pitch < 10) {
+    //     K = &K_dlqr_0_0[0][0];
+    //     gain_type = K_0_0;
+    //   }else if(-20 < state->attitude.pitch && state->attitude.pitch < -10){
+    //     K = &K_dlqr_0_n15[0][0];
+    //     gain_type = K_0_n15;
+    //   }
+    // } else if(-20 < state->attitude.roll && state->attitude.roll< -10) {
+    //   if (10 < state->attitude.pitch && state->attitude.pitch < 20) {
+    //     K = &K_dlqr_n15_15[0][0];
+    //     gain_type = K_n15_15;
+    //   } else if (-10 < state->attitude.pitch && state->attitude.pitch < 10) {
+    //     K = &K_dlqr_n15_0[0][0];
+    //     gain_type = K_n15_0;
+    //   }else if(-20 < state->attitude.pitch && state->attitude.pitch < -10){
+    //     K = &K_dlqr_n15_n15[0][0];
+    //     gain_type = K_n15_n15;
+    //   }
     // }
 
     // matrix multiplication
@@ -225,23 +267,84 @@ void controllerLqr(control_t *control, const setpoint_t *setpoint,
 #define NUM_STATE 8
 #define NUM_CTRL 4
 
+#define ATTITUDE_UPDATE_DT    (float)(1.0f/ATTITUDE_RATE)
+
+static attitude_t attitudeDesired;
+static float unusedThrust;  // do not use this to calculate thrust
+
+// log PID + LQR
+static float des_roll;
+static float des_pitch;
+static float des_yaw;
+
+void controllerLqrInit(void) {
+  if (isInit) {
+    return;
+  }
+
+  isInit = true;
+  leave_ground = false;
+  positionControllerInit();
+}
+
 bool controllerLqrTest(void) { return isInit; }
 
 static float K_dlqr[NUM_CTRL][NUM_STATE] = {
-   { 3.1125,   -0.0000,   -0.0000,   -0.0000,    0.4246,    0.0000,    0.0000,   -0.0000},
-   { 0.0000,    0.0092,   -0.0000,   -0.0000,    0.0000,    0.0011,    0.0000,    0.0000},
-   {-0.0000,   -0.0000,    0.0029,    0.0000,   -0.0000,   -0.0000,    0.0010,    0.0000},
-   {-0.0000,    0.0000,   -0.0000,    0.0030,    0.0000,   -0.0000,    0.0000,    0.0010}};
+  {3.102058,	0.000001,	0.000001,	0.000002,	0.513555,	-0.000000,	-0.000000,	-0.000000},
+  {-0.000000,	0.002939,	-0.000000,	-0.000000,	-0.000000,	0.000973,	-0.000000,	-0.000000},
+  {-0.000000,	-0.000000,	0.002945,	-0.000000,	-0.000000,	-0.000000,	0.000976,	-0.000000},
+  {-0.000000,	0.000000,	0.000000,	0.009470,	-0.000000,	-0.000000,	-0.000000,	0.001144}};
+
+float* K = &K_dlqr[0][0];
+
+static float capAngle(float angle) {
+  float result = angle;
+
+  while (result > 180.0f) {
+    result -= 360.0f;
+  }
+
+  while (result < -180.0f) {
+    result += 360.0f;
+  }
+
+  return result;
+}
    
-void controllerLqr(control_t *control, setpoint_t *setpoint,
+void controllerLqr(control_t *control, const setpoint_t *setpoint,
                    const sensorData_t *sensors, const state_t *state,
                    const uint32_t tick) {
 
   control->controlMode = controlModeForceTorque;
-  setpoint->mode.z = modeAbs;
-  setpoint->mode.yaw = modeVelocity;
 
-  if (RATE_DO_EXECUTE(LQR_UPDATE_RATE, tick)) {
+  if(RATE_DO_EXECUTE(RATE_100_HZ, tick)){
+    if(setpoint->position.z >= 0.01f){
+      leave_ground = true;
+    }else{
+      control->thrustSi = 0.0f;
+      control->torqueX = 0.0f;
+      control->torqueY = 0.0f;
+      control->torqueZ = 0.0f;
+      leave_ground = false;
+    }
+  }
+
+  if (RATE_DO_EXECUTE(ATTITUDE_RATE, tick)  && leave_ground) {
+    if (setpoint->mode.yaw == modeAbs) {
+      attitudeDesired.yaw = setpoint->attitude.yaw;
+    }
+
+    attitudeDesired.yaw = capAngle(attitudeDesired.yaw);
+    des_yaw = attitudeDesired.yaw;
+  }
+
+  if (RATE_DO_EXECUTE(POSITION_RATE, tick) && leave_ground) {
+    positionController(&unusedThrust, &attitudeDesired, setpoint, state);
+    des_roll = attitudeDesired.roll;
+    des_pitch = attitudeDesired.pitch;
+  }
+
+  if (RATE_DO_EXECUTE(LQR_UPDATE_RATE, tick) && leave_ground) {
     // using sensor info for state estimation of dotRoll, dotPitch, and dotYaw
     // gyro unit: rad/sec
     float state_rateRoll = radians(sensors->gyro.x);
@@ -255,9 +358,9 @@ void controllerLqr(control_t *control, setpoint_t *setpoint,
     error[0] = setpoint->position.z - state->position.z;
 
     // error rpy [rad]
-    error[1] = radians(setpoint->attitude.roll - state->attitude.roll);
-    error[2] = radians(setpoint->attitude.pitch + state->attitude.pitch);
-    error[3] = radians(setpoint->attitude.yaw - state->attitude.yaw);
+    error[1] = radians(attitudeDesired.roll - state->attitude.roll);
+    error[2] = radians(attitudeDesired.pitch + state->attitude.pitch);
+    error[3] = radians(attitudeDesired.yaw - state->attitude.yaw);
 
     // error vz [m/s]
     error[4] = setpoint->velocity.z - state->velocity.z;
@@ -272,7 +375,7 @@ void controllerLqr(control_t *control, setpoint_t *setpoint,
     for (int i = 0; i < NUM_CTRL; i++) {
       res = 0.0f;
       for (int j = 0; j < NUM_STATE; j++) {
-        res += K_dlqr[i][j] * error[j];
+        res += *(K+i*NUM_STATE+j) * error[j];
       }
       u[i] = res;
     }
@@ -287,6 +390,10 @@ void controllerLqr(control_t *control, setpoint_t *setpoint,
       control->torqueX = 0.0f;
       control->torqueY = 0.0f;
       control->torqueZ = 0.0f;
+      positionControllerResetAllPID();
+
+      // Reset the calculated YAW angle for rate control
+      attitudeDesired.yaw = state->attitude.yaw;
     }
 
     // log values
@@ -352,12 +459,22 @@ LOG_ADD(LOG_FLOAT, err_roll, &err_roll)
  * @brief Pitch error
  */
 LOG_ADD(LOG_FLOAT, err_pitch, &err_pitch)
-// /**
-//  * @brief start fall flag
-//  */
-// LOG_ADD(LOG_INT8, start_fall, &start_fall)
-// /**
-//  * @brief current set point height
-//  */
-// LOG_ADD(LOG_FLOAT, height, &height)
+/**
+ * @brief gain schedule type
+ */
+LOG_ADD(LOG_INT8, gain_type, &gain_type)
+#ifndef FULL_STATE
+/**
+ * @brief desired roll
+ */
+LOG_ADD(LOG_FLOAT, des_roll, &des_roll)
+/**
+ * @brief desired pitch
+ */
+LOG_ADD(LOG_FLOAT, des_pitch, &des_pitch)
+/**
+ * @brief desired yaw
+ */
+LOG_ADD(LOG_FLOAT, des_yaw, &des_yaw)
+#endif
 LOG_GROUP_STOP(ctrlLqr)

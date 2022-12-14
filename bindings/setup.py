@@ -28,6 +28,7 @@ fw_sources = [
     "src/utils/src/num.c",
     "src/modules/src/controller_mellinger.c",
     "src/modules/src/controller_brescianini.c",
+    "src/modules/src/controller_lqr.c",
     "src/modules/src/power_distribution_quadrotor.c",
     # "src/modules/src/power_distribution_flapper.c",
 ]
