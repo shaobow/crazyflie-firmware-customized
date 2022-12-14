@@ -1,3 +1,32 @@
+/**
+ * ,---------,       ____  _ __
+ * |  ,-^-,  |      / __ )(_) /_______________ _____  ___
+ * | (  O  ) |     / __  / / __/ ___/ ___/ __ `/_  / / _ \
+ * | / ,--´  |    / /_/ / / /_/ /__/ /  / /_/ / / /_/  __/
+ *    +------`   /_____/_/\__/\___/_/   \__,_/ /___/\___/
+ *
+ * Crazyflie control firmware
+ *
+ * Copyright (C) 2019 Bitcraze AB
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, in version 3.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ *
+ *
+ * internal_log_param_api.c - App layer application of the internal log
+ *  and param api  
+ */
+
+
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -37,12 +66,13 @@ typedef enum {
   LANDING,
 } StateCF;
 
-static StateCF sCF;
+static StateCF sCF = IDLE;
 
 void appMain()
 {
   // paramVarId_t idEstimator = paramGetVarId("stabilizer", "estimator");
   // uint8_t estimator_type = 0;
+
 
   /* Getting logging ID of the state estimates */
   logVarId_t idAz = logGetVarId("stateEstimate", "az");
@@ -81,7 +111,7 @@ void appMain()
       case INAIR:
         /* stabilized for certain time */
         if((estAz > 0.0f - acc_tolerance) && (estAz < 0.0f + acc_tolerance)){
-          cnt_INAIR++;
+          cnt_INAIR ++;
         } else {
           cnt_INAIR = 0;
         }
@@ -135,3 +165,4 @@ LOG_ADD(LOG_UINT8, cnt_IDLE, &cnt_IDLE)
 LOG_ADD(LOG_UINT8, cnt_INAIR, &cnt_INAIR)
 LOG_ADD(LOG_UINT8, cnt_LANDING, &cnt_LANDING)
 LOG_GROUP_STOP(appFreeThrow)
+
