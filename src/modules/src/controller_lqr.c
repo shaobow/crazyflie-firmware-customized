@@ -33,8 +33,8 @@ static float height = 0.0f;
 // use lqr method flag
 // #define FULL_STATE
 // #define REDUCED_STATE
-#define FULL_STATE_REGRESSION
-//#define REDUCED_STATE_REGRESSION
+// #define FULL_STATE_REGRESSION
+#define REDUCED_STATE_REGRESSION
 
 // tune variable
 static float acc_tol = 0.1; // [Gs]
@@ -884,7 +884,7 @@ void controllerLqr(control_t *control, const setpoint_t *setpoint,
         // K_dlqr[i][j] = coef_dlqr[count][0] * 1 + coef_dlqr[count][1] * pow(roll_, 3) + coef_dlqr[count][2] * 3*pow(roll_, 2)*pitch_ + coef_dlqr[count][3] * 3*pow(roll_, 2)*yaw_
         //                coef_dlqr[count][5] * 6*roll_*pitch_*yaw_ + coef_dlqr[count][6] * 3*roll_*pow(pitch_, 2) + coef_dlqr[count][7] * pow(pitch_, 3) + coef_dlqr[count][8] * 3*pow(pitch_, 2)*yaw_
         //                coef_dlqr[count][9] * 3*pitch_*pow(yaw_, 2) + coef_dlqr[count][10] * pow(yaw_, 3);
-        K_dlqr[i][j] = coef_dlqr[count][0] * 1 + coef_dlqr[count][1] * pow(roll_, 3) + coef_dlqr[count][2] * pow(pitch_, 3) + coef_dlqr[count][3] * pow(yaw_, 2);
+        K_dlqr[i][j] = coef_dlqr[count][0] * 1 + coef_dlqr[count][1] * pow(roll_, 3) + coef_dlqr[count][2] * pow(pitch_, 3) + coef_dlqr[count][3] * pow(yaw_, 3);
       }
       count++;
     }
