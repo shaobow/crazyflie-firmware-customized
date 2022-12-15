@@ -4,6 +4,7 @@
  */
 
 #include "controller_lqr.h"
+#include "position_controller.h"
 
 #include "log.h"
 #include "math.h"
@@ -21,6 +22,7 @@ static float cmd_yaw = 0.0;
 static float err_z = 0.0;
 static float err_roll = 0.0;
 static float err_pitch = 0.0;
+static int gain_type = 0;
 
 // init and status flag
 static bool isInit = false;
@@ -29,7 +31,7 @@ static int cnt = 0;
 static float height = 0.0f;
 
 // use full state flag
-#define FULL_STATE 1
+//#define FULL_STATE 1
 
 // tune variable
 static float acc_tol = 0.1; // [Gs]
@@ -42,12 +44,18 @@ void controllerLqrReset(void) {
   cnt = 0;
 }
 
-void controllerLqrInit(void) {
-  if (isInit) {
-    return;
+static float capAngle(float angle) {
+  float result = angle;
+
+  while (result > 180.0f) {
+    result -= 360.0f;
   }
 
-  isInit = true;
+  while (result < -180.0f) {
+    result += 360.0f;
+  }
+
+  return result;
 }
 
 #define LQR_UPDATE_RATE RATE_500_HZ
@@ -57,49 +65,106 @@ void controllerLqrInit(void) {
 #define NUM_STATE 12
 #define NUM_CTRL 4
 
+static float capAngle(float angle) {
+  float result = angle;
+
+  while (result > 180.0f) {
+    result -= 360.0f;
+  }
+
+  while (result < -180.0f) {
+    result += 360.0f;
+  }
+
+  isInit = true;
+  leave_ground = false;
+}
+
 bool controllerLqrTest(void) { return isInit; }
 
-// LQR controller with abs(15) angles linearization points
+// LQR controller with abs(30) angles linearization points
 static float K_dlqr_0[NUM_CTRL][NUM_STATE] = {
-    { 0.000000,	 0.000000,	 3.102058,	-0.000000,	 0.000000,	0.000000,	 -0.000000,	 0.000000,	 0.513555,	-0.000000,	0.000000,	 -0.000000},
-    {-0.000000,	-0.000927,	-0.000000,	 0.006036,	-0.000000,	0.000000,	 -0.000000,	-0.001414,	-0.000000,	 0.001013,	-0.000000,	0.000000},
-    { 0.000928,	 0.000000,	 0.000000,	 0.000000,	 0.006054,	0.000000,	  0.001417,	 0.000000,	 0.000000,	-0.000000,	 0.001018,	0.000000},
-    { 0.000000,	-0.000000,	-0.000000,	 0.000000,	-0.000000,	0.009470,	 -0.000000,	-0.000000,	-0.000000,	 0.000000,	 0.000000,	0.001144},
+		{-0.000000,	 0.000000,	 3.102058,	-0.000000,	-0.000000,	 0.000000,	-0.000000,	 0.000000,	 0.513555,	-0.000000,	-0.000000,	 0.000000},
+		{ 0.000000,	-0.000924,	 0.000000,	 0.008583,	 0.000000,	-0.000000,	 0.000000,	-0.003187,	-0.000000,	 0.001045,	 0.000000,	-0.000000},
+		{ 0.000926,	-0.000000,	-0.000000,	 0.000000,	 0.008612,	 0.000000,	 0.003194,	-0.000000,	-0.000000,	 0.000000,	 0.001051,	 0.000000},
+		{ 0.000000,	 0.000000,	 0.000000,	 0.000000,	 0.000000,	 0.009470,	 0.000000,	-0.000000,	 0.000000,	-0.000000,	 0.000000,	 0.001144},
 };
 
 static float K_dlqr_30[NUM_CTRL][NUM_STATE] = {
-    {-0.000000,	 0.000000,	 3.102058,	-0.000000,	-0.000000,	 0.000000,	-0.000000,	 0.000000,	 0.513555,	-0.000000,	-0.000000,	 0.000000},
-    {-0.000915,	-0.000143,	-0.000000,	 0.006036,	-0.000000,	 0.000000,	-0.001397,	-0.000218,	-0.000000,	 0.001013,	 0.000000,	 0.000000},
-    { 0.000143,	-0.000917,	-0.000000,	 0.000000,	 0.006054,	-0.000000,	 0.000219,	-0.001400,	-0.000000,	 0.000000,	 0.001018,	-0.000000},
-    {-0.000000,	 0.000000,	-0.000000,	 0.000000,	-0.000000,	 0.009470,	-0.000000,	 0.000000,	-0.000000,	 0.000000,	-0.000000,	 0.001144},
+		{ 0.000000,	-0.000000,	 3.102058,	 0.000000,	 0.000000,	 0.000000,	 0.000000,	-0.000000,	 0.513555,	 0.000000,	 0.000000,	 0.000000},
+		{ 0.000462,	-0.000800,	 0.000000,	 0.008583,	 0.000000,	 0.000000,	 0.001594,	-0.002760,	 0.000000,	 0.001045,	-0.000000,	 0.000000},
+		{ 0.000802,	 0.000463,	 0.000000,	 0.000000,	 0.008612,	-0.000000,	 0.002766,	 0.001597,	 0.000000,	-0.000000,	 0.001051,	-0.000000},
+		{ 0.000000,	-0.000000,	 0.000000,	 0.000000,	-0.000000,	 0.009470,	-0.000000,	-0.000000,	 0.000000,	 0.000000,	-0.000000,	 0.001144},
 };
 
 static float K_dlqr_n30[NUM_CTRL][NUM_STATE] = {
-    { 0.000000,	 0.000000,	 3.102058,	-0.000000,	 0.000000,	 0.000000,	 0.000000,	 0.000000,	 0.513555,	-0.000000,	 0.000000,	 0.000000},
-    { 0.000915,	-0.000143,	-0.000000,	 0.006036,	 0.000000,	 0.000000,	 0.001397,	-0.000218,	-0.000000,	 0.001013,	-0.000000,	 0.000000},
-    { 0.000143,	 0.000917,	 0.000000,	-0.000000,	 0.006054,	 0.000000,	 0.000219,	 0.001400,	 0.000000,	-0.000000,	 0.001018,	 0.000000},
-    { 0.000000,	 0.000000,	-0.000000,	 0.000000,	 0.000000,	 0.009470,	 0.000000,	 0.000000,	-0.000000,	 0.000000,	 0.000000,	 0.001144},
+		{ 0.000000,	 0.000000,	 3.102058,	-0.000000,	 0.000000,	 0.000000,	 0.000000,	 0.000000,	 0.513555,	-0.000000,	 0.000000,	 0.000000},
+		{-0.000462,	-0.000800,	-0.000000,	 0.008583,	-0.000000,	-0.000000,	-0.001594,	-0.002760,	-0.000000,	 0.001045,	 0.000000,	-0.000000},
+		{ 0.000802,	-0.000463,	 0.000000,	-0.000000,	 0.008612,	-0.000000,	 0.002766,	-0.001597,	 0.000000,	 0.000000,	 0.001051,	-0.000000},
+		{ 0.000000,	 0.000000,	 0.000000,	-0.000000,	-0.000000,	 0.009470,	-0.000000,	 0.000000,	 0.000000,	-0.000000,	-0.000000,	 0.001144},
 };
 
 static float K_dlqr_60[NUM_CTRL][NUM_STATE] = {
-    {-0.000000,	-0.000000,	 3.102058,	-0.000000,	 0.000000,	-0.000000,	-0.000000,	-0.000000,	 0.513555,	-0.000000,	 0.000000,	-0.000000},
-    {-0.000282,	 0.000882,	-0.000000,	 0.006036,	 0.000000,	-0.000000,	-0.000431,	 0.001347,	-0.000000,	 0.001013,	 0.000000,	-0.000000},
-    {-0.000884,	-0.000283,	 0.000000,	 0.000000,	 0.006054,	 0.000000,	-0.001350,	-0.000432,	 0.000000,	 0.000000,	 0.001018,	-0.000000},
-    { 0.000000,	-0.000000,	-0.000000,	-0.000000,	-0.000000,	 0.009470,	-0.000000,	-0.000000,	-0.000000,	-0.000000,	-0.000000,	 0.001144},
+		{ 0.000000,	 0.000000,	 3.102058,	 0.000000,	 0.000000,	 0.000000,	 0.000000,	 0.000000,	 0.513555,	 0.000000,	 0.000000,	 0.000000},
+		{ 0.000800,	-0.000462,	 0.000000,	 0.008583,	-0.000000,	-0.000000,	 0.002760,	-0.001594,	 0.000000,	 0.001045,	-0.000000,	 0.000000},
+		{ 0.000463,	 0.000802,	 0.000000,	-0.000000,	 0.008612,	 0.000000,	 0.001597,	 0.002766,	 0.000000,	-0.000000,	 0.001051,	 0.000000},
+		{-0.000000,	-0.000000,	 0.000000,	 0.000000,	 0.000000,	 0.009470,	 0.000000,	-0.000000,	 0.000000,	 0.000000,	 0.000000,	 0.001144},
 };
 
 static float K_dlqr_n60[NUM_CTRL][NUM_STATE] = {
-    { 0.000000,	-0.000000,	 3.102058,	-0.000000,	-0.000000,	-0.000000,	 0.000000,	-0.000000,	 0.513555,	-0.000000,	-0.000000,	-0.000000},
-    { 0.000282,	 0.000882,	-0.000000,	 0.006036,	-0.000000,	-0.000000,	 0.000431,	 0.001347,	-0.000000,	 0.001013,	-0.000000,	-0.000000},
-    {-0.000884,	 0.000283,	-0.000000,	-0.000000,	 0.006054,	-0.000000,	-0.001350,	 0.000432,	-0.000000,	-0.000000,	 0.001018,	 0.000000},
-    {-0.000000,	-0.000000,	-0.000000,	-0.000000,	 0.000000,	 0.009470,	 0.000000,	-0.000000,	-0.000000,	-0.000000,	 0.000000,	 0.001144}, 
+		{ 0.000000,	-0.000000,	 3.102058,	-0.000000,	 0.000000,	 0.000000,	 0.000000,	-0.000000,	 0.513555,	-0.000000,	 0.000000,	 0.000000},
+		{-0.000800,	-0.000462,	-0.000000,	 0.008583,	 0.000000,	 0.000000,	-0.002760,	-0.001594,	-0.000000,	 0.001045,	 0.000000,	-0.000000},
+		{ 0.000463,	-0.000802,	 0.000000,	 0.000000,	 0.008612,	 0.000000,	 0.001597,	-0.002766,	 0.000000,	 0.000000,	 0.001051,	 0.000000},
+		{-0.000000,	 0.000000,	 0.000000,	-0.000000,	 0.000000,	 0.009470,	 0.000000,	 0.000000,	 0.000000,	-0.000000,	 0.000000,	 0.001144},
 };
 
 static float K_dlqr_90[NUM_CTRL][NUM_STATE] = {
-  {-0.000000,	-0.000000,	 3.102058,	-0.000000,	-0.000000,	 0.000000,	 0.000000,	-0.000000,	 0.513555,	-0.000000,	-0.000000,	-0.000000},
-  { 0.000828,	 0.000415,	-0.000000,	 0.006036,	 0.000000,	-0.000000,	 0.001264,	 0.000633,	 0.000000,	 0.001013,	-0.000000,	-0.000000},
-  {-0.000416,	 0.000830,	-0.000000,	 0.000000,	 0.006054,	 0.000000,	-0.000635,	 0.001267,	-0.000000,	-0.000000,	 0.001018,	 0.000000},
-  {-0.000000,	 0.000000,	-0.000000,	-0.000000,	-0.000000,	 0.009470,	-0.000000,	-0.000000,	-0.000000,	-0.000000,	 0.000000,	 0.001144},
+		{-0.000000,	 0.000000,	 3.102058,	-0.000000,	 0.000000,	 0.000000,	 0.000000,	 0.000000,	 0.513555,	-0.000000,	 0.000000,	 0.000000},
+		{ 0.000924,	-0.000000,	-0.000000,	 0.008583,	 0.000000,	-0.000000,	 0.003187,	 0.000000,	-0.000000,	 0.001045,	 0.000000,	-0.000000},
+		{ 0.000000,	 0.000926,	 0.000000,	 0.000000,	 0.008612,	-0.000000,	 0.000000,	 0.003194,	 0.000000,	 0.000000,	 0.001051,	-0.000000},
+		{-0.000000,	-0.000000,	 0.000000,	-0.000000,	-0.000000,	 0.009470,	-0.000000,	-0.000000,	 0.000000,	-0.000000,	-0.000000,	 0.001144},
+};
+
+static float K_dlqr_n90[NUM_CTRL][NUM_STATE] = {
+		{-0.000000,	-0.000000,	 3.102058,	 0.000000,	 0.000000,	 0.000000,	 0.000000,	-0.000000,	 0.513555,	 0.000000,	 0.000000,	 0.000000},
+		{-0.000924,	-0.000000,	 0.000000,	 0.008583,	-0.000000,	 0.000000,	-0.003187,	 0.000000,	 0.000000,	 0.001045,	-0.000000,	 0.000000},
+		{ 0.000000,	-0.000926,	 0.000000,	-0.000000,	 0.008612,	-0.000000,	 0.000000,	-0.003194,	 0.000000,	-0.000000,	 0.001051,	-0.000000},
+		{-0.000000,	 0.000000,	 0.000000,	 0.000000,	-0.000000,	 0.009470,	-0.000000,	 0.000000,	 0.000000,	 0.000000,	-0.000000,	 0.001144},
+};
+
+static float K_dlqr_120[NUM_CTRL][NUM_STATE] = {
+		{-0.000000,	 0.000000,	 3.102058,	-0.000000,	 0.000000,	-0.000000,	-0.000000,	 0.000000,	 0.513555,	-0.000000,	 0.000000,	-0.000000},
+		{ 0.000800,	 0.000462,	-0.000000,	 0.008583,	 0.000000,	-0.000000,	 0.002760,	 0.001594,	-0.000000,	 0.001045,	 0.000000,	 0.000000},
+		{-0.000463,	 0.000802,	 0.000000,	 0.000000,	 0.008612,	-0.000000,	-0.001597,	 0.002766,	 0.000000,	 0.000000,	 0.001051,	-0.000000},
+		{-0.000000,	 0.000000,	-0.000000,	 0.000000,	-0.000000,	 0.009470,	 0.000000,	 0.000000,	-0.000000,	 0.000000,	-0.000000,	 0.001144},
+};
+
+static float K_dlqr_n120[NUM_CTRL][NUM_STATE] = {
+		{-0.000000,	-0.000000,	 3.102058,	 0.000000,	 0.000000,	-0.000000,	-0.000000,	-0.000000,	 0.513555,	 0.000000,	 0.000000,	-0.000000},
+		{-0.000800,	 0.000462,	 0.000000,	 0.008583,	-0.000000,	 0.000000,	-0.002760,	 0.001594,	 0.000000,	 0.001045,	-0.000000,	-0.000000},
+		{-0.000463,	-0.000802,	 0.000000,	-0.000000,	 0.008612,	-0.000000,	-0.001597,	-0.002766,	 0.000000,	-0.000000,	 0.001051,	-0.000000},
+		{-0.000000,	-0.000000,	-0.000000,	-0.000000,	-0.000000,	 0.009470,	 0.000000,	-0.000000,	-0.000000,	-0.000000,	-0.000000,	 0.001144},
+};
+
+static float K_dlqr_150[NUM_CTRL][NUM_STATE] = {
+		{-0.000000,	-0.000000,	 3.102058,	-0.000000,	 0.000000,	-0.000000,	-0.000000,	-0.000000,	 0.513555,	-0.000000,	 0.000000,	-0.000000},
+		{ 0.000462,	 0.000800,	-0.000000,	 0.008583,	-0.000000,	 0.000000,	 0.001594,	 0.002760,	-0.000000,	 0.001045,	 0.000000,	 0.000000},
+		{-0.000802,	 0.000463,	 0.000000,	-0.000000,	 0.008612,	 0.000000,	-0.002766,	 0.001597,	 0.000000,	 0.000000,	 0.001051,	 0.000000},
+		{ 0.000000,	 0.000000,	-0.000000,	 0.000000,	 0.000000,	 0.009470,	-0.000000,	 0.000000,	-0.000000,	 0.000000,	 0.000000,	 0.001144},
+};
+
+static float K_dlqr_n150[NUM_CTRL][NUM_STATE] = {
+		{-0.000000,	 0.000000,	 3.102058,	 0.000000,	 0.000000,	-0.000000,	-0.000000,	 0.000000,	 0.513555,	 0.000000,	 0.000000,	-0.000000},
+		{-0.000462,	 0.000800,	 0.000000,	 0.008583,	 0.000000,	-0.000000,	-0.001594,	 0.002760,	 0.000000,	 0.001045,	-0.000000,	-0.000000},
+		{-0.000802,	-0.000463,	 0.000000,	 0.000000,	 0.008612,	 0.000000,	-0.002766,	-0.001597,	 0.000000,	-0.000000,	 0.001051,	 0.000000},
+		{ 0.000000,	-0.000000,	-0.000000,	-0.000000,	 0.000000,	 0.009470,	-0.000000,	-0.000000,	-0.000000,	-0.000000,	 0.000000,	 0.001144},
+};
+
+static float K_dlqr_180[NUM_CTRL][NUM_STATE] = {
+		{ 0.000000,	-0.000000,	 3.102058,	-0.000000,	-0.000000,	-0.000000,	 0.000000,	-0.000000,	 0.513555,	-0.000000,	-0.000000,	-0.000000},
+		{-0.000000,	 0.000924,	 0.000000,	 0.008583,	 0.000000,	 0.000000,	-0.000000,	 0.003187,	-0.000000,	 0.001045,	 0.000000,	 0.000000},
+		{-0.000926,	 0.000000,	-0.000000,	 0.000000,	 0.008612,	-0.000000,	-0.003194,	 0.000000,	-0.000000,	 0.000000,	 0.001051,	-0.000000},
+		{ 0.000000,	 0.000000,	-0.000000,	-0.000000,	-0.000000,	 0.009470,	 0.000000,	-0.000000,	-0.000000,	 0.000000,	-0.000000,	 0.001144},
 };
 
 void controllerLqr(control_t *control, setpoint_t *setpoint,
@@ -108,37 +173,17 @@ void controllerLqr(control_t *control, setpoint_t *setpoint,
 
   control->controlMode = controlModeForceTorque;
 
-  if(RATE_DO_EXECUTE(RATE_500_HZ, tick) && !start_fall){
-    if((state->acc.z > -1.0f - acc_tol) && (state->acc.z < -1.0f + acc_tol)){
-      cnt++;
+  if(RATE_DO_EXECUTE(RATE_100_HZ, tick)){
+    if(setpoint->position.z >= 0.01f){
+      leave_ground = true;
     }else{
-      cnt = 0;
-      start_fall = false;
-    }
-
-    if(cnt > max_cnt){
-      height = state->position.z - 0.02f;
-      start_fall = true;
+      control->thrustSi = 0.0f;
+      control->torqueX = 0.0f;
+      control->torqueY = 0.0f;
+      control->torqueZ = 0.0f;
+      leave_ground = false;
     }
   }
-
-  if(RATE_DO_EXECUTE(RATE_50_HZ, tick) && start_fall){
-      height -= 0.001f;
-      if(height <= 0.05f || state->position.z <= 0.05f){
-        control->thrustSi = 0.0f;
-        control->torqueX = 0.0f;
-        control->torqueY = 0.0f;
-        control->torqueZ = 0.0f;
-        controllerLqrReset();
-      }
-      setpoint->mode.z = modeAbs;
-      setpoint->position.z = height;
-  }
-
-  if (RATE_DO_EXECUTE(LQR_UPDATE_RATE, tick)) {
-    // update height setpoint
-    setpoint->mode.z = modeAbs;
-    setpoint->position.z = height;
 
     // using sensor info for state estimation of dotRoll, dotPitch, and dotYaw
     // gyro unit: rad/sec
@@ -156,8 +201,8 @@ void controllerLqr(control_t *control, setpoint_t *setpoint,
 
     // error rpy [rad]
     error[3] = radians(setpoint->attitude.roll - state->attitude.roll);
-    error[4] = radians(setpoint->attitude.pitch + state->attitude.pitch);
-    error[5] = radians(setpoint->attitude.yaw - state->attitude.yaw);
+    error[4] = radians(-setpoint->attitude.pitch + state->attitude.pitch);
+    error[5] = radians(capAngle(capAngle(setpoint->attitude.yaw) - capAngle(state->attitude.yaw)));
 
     // error vx vy vz [m/s]
     error[6] = setpoint->velocity.x - state->velocity.x;
@@ -172,44 +217,45 @@ void controllerLqr(control_t *control, setpoint_t *setpoint,
     // gain scheduling calculate K matrix
     float* K = &K_dlqr_0[0][0];
 
-    // if(10 < state->attitude.roll < 20) {
-    //   if (10 < state->attitude.pitch < 20) {
-    //     K = &K_dlqr_15_15[0][0];
-    //   } else if (-10 < state->attitude.pitch < 10) {
-    //     K = &K_dlqr_15_0[0][0];
-    //   }else if(-20 < state->attitude.pitch < -10){
-    //     K = &K_dlqr_15_n15[0][0];
-    //   }
-    // } else if(-10 < state->attitude.roll < 10) {
-    //   if (10 < state->attitude.pitch < 20) {
-    //     K = &K_dlqr_0_15[0][0];
-    //   } else if (-10 < state->attitude.pitch < 10) {
-    //     K = &K_dlqr_0_0[0][0];
-    //   }else if(-20 < state->attitude.pitch < -10){
-    //     K = &K_dlqr_0_n15[0][0];
-    //   }
-    // } else if(-20 < state->attitude.roll < -10) {
-    //   if (10 < state->attitude.pitch < 20) {
-    //     K = &K_dlqr_n15_15[0][0];
-    //   } else if (-10 < state->attitude.pitch < 10) {
-    //     K = &K_dlqr_n15_0[0][0];
-    //   }else if(-20 < state->attitude.pitch < -10){
-    //     K = &K_dlqr_n15_n15[0][0];
-    //   }
-    // }
+    // cap between -180 to 180 deg
+    float yaw_cap = capAngle(state->attitude.yaw);
 
-    if (-15 <= state->attitude.yaw && state->attitude.yaw <= 15) {
-      K = &K_dlqr_0[0][0]
-    } else if(15 < state->attitude.yaw && state->attitude.yaw <= 45 ) {
-      K = &K_dlqr_30[0][0]
-    } else if(45 < state->attitude.yaw && state->attitude.yaw < 75) {
-      K = &K_dlqr_60[0][0]
-    } else if(75 <= state->attitude.yaw && state->attitude.yaw <= -75) {
-      K = &K_dlqr_90[0][0]
-    } else if(-75 < state->attitude.yaw && state->attitude.yaw <= -45) {
-      K = &K_dlqr_n60[0][0]
-    } else if(-45 < state->attitude.yaw && state->attitude.yaw < -15 ) {
-      K = &K_dlqr_n30[0][0]
+    if (-15 <= yaw_cap && yaw_cap < 15) {
+      K = &K_dlqr_0[0][0];
+      gain_type = 0;
+    } else if(15 <= yaw_cap && yaw_cap < 45 ) {
+      K = &K_dlqr_30[0][0];
+      gain_type = 30;
+    } else if(45 <= yaw_cap && yaw_cap < 75) {
+      K = &K_dlqr_60[0][0];
+      gain_type = 60;
+    } else if(75 <= yaw_cap && yaw_cap < 105) {
+      K = &K_dlqr_90[0][0];
+      gain_type = 90;
+    } else if(105 <= yaw_cap && yaw_cap < 135) {
+      K = &K_dlqr_120[0][0];
+      gain_type = 120;
+    } else if(135 <= yaw_cap && yaw_cap < 165 ) {
+      K = &K_dlqr_150[0][0];
+      gain_type = 150;
+    } else if(165 <= yaw_cap || yaw_cap < -165) {
+      K = &K_dlqr_180[0][0];
+      gain_type = 180;
+    } else if(-165 <= yaw_cap && yaw_cap < -135) {
+      K = &K_dlqr_n150[0][0];
+      gain_type = 210;
+    } else if(-135 <= yaw_cap && yaw_cap < -105) {
+      K = &K_dlqr_n120[0][0];
+      gain_type = 240;
+    } else if(-105 <= yaw_cap && yaw_cap < -75) {
+      K = &K_dlqr_n90[0][0];
+      gain_type = 270;
+    } else if(-75 <= yaw_cap && yaw_cap < -45) {
+      K = &K_dlqr_n60[0][0];
+      gain_type = 300;
+    } else if(-45 <= yaw_cap && yaw_cap < -15) {
+      K = &K_dlqr_n30[0][0];
+      gain_type = 330;
     }
 
     // matrix multiplication
@@ -250,23 +296,146 @@ void controllerLqr(control_t *control, setpoint_t *setpoint,
 #define NUM_STATE 8
 #define NUM_CTRL 4
 
+#define ATTITUDE_UPDATE_DT    (float)(1.0f/ATTITUDE_RATE)
+
+static attitude_t attitudeDesired;
+static float actuatorThrust;  // do not use this to calculate thrust
+
+// log PID + LQR
+static float des_roll;
+static float des_pitch;
+static float des_yaw;
+
+void controllerLqrInit(void) {
+  if (isInit) {
+    return;
+  }
+
+  isInit = true;
+  leave_ground = false;
+  positionControllerInit();
+}
+
 bool controllerLqrTest(void) { return isInit; }
 
-static float K_dlqr[NUM_CTRL][NUM_STATE] = {
-   { 3.1125,   -0.0000,   -0.0000,   -0.0000,    0.4246,    0.0000,    0.0000,   -0.0000},
-   { 0.0000,    0.0092,   -0.0000,   -0.0000,    0.0000,    0.0011,    0.0000,    0.0000},
-   {-0.0000,   -0.0000,    0.0029,    0.0000,   -0.0000,   -0.0000,    0.0010,    0.0000},
-   {-0.0000,    0.0000,   -0.0000,    0.0030,    0.0000,   -0.0000,    0.0000,    0.0010}};
-   
-void controllerLqr(control_t *control, setpoint_t *setpoint,
+static float K_dlqr_0[NUM_CTRL][NUM_STATE] = {
+		{ 3.102058,	 0.000000,	 0.000000,	-0.000000,	 0.513555,	-0.000000,	 0.000000,	-0.000000},
+		{ 0.000000,	 0.002939,	-0.000000,	 0.000000,	 0.000000,	 0.000973,	-0.000000,	 0.000000},
+		{-0.000000,	 0.000000,	 0.002945,	-0.000000,	-0.000000,	 0.000000,	 0.000976,	 0.000000},
+		{ 0.000000,	 0.000000,	-0.000000,	 0.009470,	-0.000000,	 0.000000,	-0.000000,	 0.001144},
+};
+
+static float K_dlqr_30[NUM_CTRL][NUM_STATE] = {
+		{ 3.102058,	 0.000000,	 0.000000,	-0.000000,	 0.513555,	-0.000000,	 0.000000,	-0.000000},
+		{ 0.000000,	 0.002939,	-0.000000,	 0.000000,	 0.000000,	 0.000973,	-0.000000,	 0.000000},
+		{-0.000000,	 0.000000,	 0.002945,	-0.000000,	-0.000000,	 0.000000,	 0.000976,	 0.000000},
+		{ 0.000000,	 0.000000,	-0.000000,	 0.009470,	-0.000000,	 0.000000,	-0.000000,	 0.001144},
+};
+
+static float K_dlqr_n30[NUM_CTRL][NUM_STATE] = {
+		{ 3.102058,	 0.000000,	 0.000000,	-0.000000,	 0.513555,	-0.000000,	 0.000000,	-0.000000},
+		{ 0.000000,	 0.002939,	-0.000000,	 0.000000,	 0.000000,	 0.000973,	-0.000000,	 0.000000},
+		{-0.000000,	 0.000000,	 0.002945,	-0.000000,	-0.000000,	 0.000000,	 0.000976,	 0.000000},
+		{ 0.000000,	 0.000000,	-0.000000,	 0.009470,	-0.000000,	 0.000000,	-0.000000,	 0.001144},
+};
+
+static float K_dlqr_60[NUM_CTRL][NUM_STATE] = {
+		{ 3.102058,	 0.000000,	 0.000000,	-0.000000,	 0.513555,	-0.000000,	 0.000000,	-0.000000},
+		{ 0.000000,	 0.002939,	-0.000000,	 0.000000,	 0.000000,	 0.000973,	-0.000000,	 0.000000},
+		{-0.000000,	 0.000000,	 0.002945,	-0.000000,	-0.000000,	 0.000000,	 0.000976,	 0.000000},
+		{ 0.000000,	 0.000000,	-0.000000,	 0.009470,	-0.000000,	 0.000000,	-0.000000,	 0.001144},
+};
+
+static float K_dlqr_n60[NUM_CTRL][NUM_STATE] = {
+		{ 3.102058,	 0.000000,	 0.000000,	-0.000000,	 0.513555,	-0.000000,	 0.000000,	-0.000000},
+		{ 0.000000,	 0.002939,	-0.000000,	 0.000000,	 0.000000,	 0.000973,	-0.000000,	 0.000000},
+		{-0.000000,	 0.000000,	 0.002945,	-0.000000,	-0.000000,	 0.000000,	 0.000976,	 0.000000},
+		{ 0.000000,	 0.000000,	-0.000000,	 0.009470,	-0.000000,	 0.000000,	-0.000000,	 0.001144},
+};
+
+static float K_dlqr_90[NUM_CTRL][NUM_STATE] = {
+		{ 3.102058,	 0.000000,	 0.000000,	-0.000000,	 0.513555,	-0.000000,	 0.000000,	-0.000000},
+		{ 0.000000,	 0.002939,	-0.000000,	 0.000000,	 0.000000,	 0.000973,	-0.000000,	 0.000000},
+		{-0.000000,	 0.000000,	 0.002945,	-0.000000,	-0.000000,	 0.000000,	 0.000976,	 0.000000},
+		{ 0.000000,	 0.000000,	-0.000000,	 0.009470,	-0.000000,	 0.000000,	-0.000000,	 0.001144},
+};
+
+static float K_dlqr_n90[NUM_CTRL][NUM_STATE] = {
+		{ 3.102058,	 0.000000,	 0.000000,	-0.000000,	 0.513555,	-0.000000,	 0.000000,	-0.000000},
+		{ 0.000000,	 0.002939,	-0.000000,	 0.000000,	 0.000000,	 0.000973,	-0.000000,	 0.000000},
+		{-0.000000,	 0.000000,	 0.002945,	-0.000000,	-0.000000,	 0.000000,	 0.000976,	 0.000000},
+		{ 0.000000,	 0.000000,	-0.000000,	 0.009470,	-0.000000,	 0.000000,	-0.000000,	 0.001144},
+};
+
+static float K_dlqr_120[NUM_CTRL][NUM_STATE] = {
+		{ 3.102058,	 0.000000,	 0.000000,	-0.000000,	 0.513555,	-0.000000,	 0.000000,	-0.000000},
+		{ 0.000000,	 0.002939,	-0.000000,	 0.000000,	 0.000000,	 0.000973,	-0.000000,	 0.000000},
+		{-0.000000,	 0.000000,	 0.002945,	-0.000000,	-0.000000,	 0.000000,	 0.000976,	 0.000000},
+		{ 0.000000,	 0.000000,	-0.000000,	 0.009470,	-0.000000,	 0.000000,	-0.000000,	 0.001144},
+};
+
+static float K_dlqr_n120[NUM_CTRL][NUM_STATE] = {
+		{ 3.102058,	 0.000000,	 0.000000,	-0.000000,	 0.513555,	-0.000000,	 0.000000,	-0.000000},
+		{ 0.000000,	 0.002939,	-0.000000,	 0.000000,	 0.000000,	 0.000973,	-0.000000,	 0.000000},
+		{-0.000000,	 0.000000,	 0.002945,	-0.000000,	-0.000000,	 0.000000,	 0.000976,	 0.000000},
+		{ 0.000000,	 0.000000,	-0.000000,	 0.009470,	-0.000000,	 0.000000,	-0.000000,	 0.001144},
+};
+
+static float K_dlqr_150[NUM_CTRL][NUM_STATE] = {
+		{ 3.102058,	 0.000000,	 0.000000,	-0.000000,	 0.513555,	-0.000000,	 0.000000,	-0.000000},
+		{ 0.000000,	 0.002939,	-0.000000,	 0.000000,	 0.000000,	 0.000973,	-0.000000,	 0.000000},
+		{-0.000000,	 0.000000,	 0.002945,	-0.000000,	-0.000000,	 0.000000,	 0.000976,	 0.000000},
+		{ 0.000000,	 0.000000,	-0.000000,	 0.009470,	-0.000000,	 0.000000,	-0.000000,	 0.001144},
+};
+
+static float K_dlqr_n150[NUM_CTRL][NUM_STATE] = {
+		{ 3.102058,	 0.000000,	 0.000000,	-0.000000,	 0.513555,	-0.000000,	 0.000000,	-0.000000},
+		{ 0.000000,	 0.002939,	-0.000000,	 0.000000,	 0.000000,	 0.000973,	-0.000000,	 0.000000},
+		{-0.000000,	 0.000000,	 0.002945,	-0.000000,	-0.000000,	 0.000000,	 0.000976,	 0.000000},
+		{ 0.000000,	 0.000000,	-0.000000,	 0.009470,	-0.000000,	 0.000000,	-0.000000,	 0.001144},
+};
+
+static float K_dlqr_180[NUM_CTRL][NUM_STATE] = {
+		{ 3.102058,	 0.000000,	 0.000000,	-0.000000,	 0.513555,	-0.000000,	 0.000000,	-0.000000},
+		{ 0.000000,	 0.002939,	-0.000000,	 0.000000,	 0.000000,	 0.000973,	-0.000000,	 0.000000},
+		{-0.000000,	 0.000000,	 0.002945,	-0.000000,	-0.000000,	 0.000000,	 0.000976,	 0.000000},
+		{ 0.000000,	 0.000000,	-0.000000,	 0.009470,	-0.000000,	 0.000000,	-0.000000,	 0.001144},
+};
+  
+void controllerLqr(control_t *control, const setpoint_t *setpoint,
                    const sensorData_t *sensors, const state_t *state,
                    const uint32_t tick) {
 
   control->controlMode = controlModeForceTorque;
-  setpoint->mode.z = modeAbs;
-  setpoint->mode.yaw = modeVelocity;
 
-  if (RATE_DO_EXECUTE(LQR_UPDATE_RATE, tick)) {
+  if(RATE_DO_EXECUTE(RATE_100_HZ, tick)){
+    if(setpoint->position.z >= 0.01f){
+      leave_ground = true;
+    }else{
+      control->thrustSi = 0.0f;
+      control->torqueX = 0.0f;
+      control->torqueY = 0.0f;
+      control->torqueZ = 0.0f;
+      leave_ground = false;
+    }
+  }
+
+  if (RATE_DO_EXECUTE(ATTITUDE_RATE, tick)  && leave_ground) {
+    if (setpoint->mode.yaw == modeAbs) {
+      attitudeDesired.yaw = setpoint->attitude.yaw;
+    }
+
+    attitudeDesired.yaw = capAngle(attitudeDesired.yaw);
+    des_yaw = attitudeDesired.yaw;
+  }
+
+  if (RATE_DO_EXECUTE(POSITION_RATE, tick) && leave_ground) {
+    positionController(&actuatorThrust, &attitudeDesired, setpoint, state);
+    des_roll = attitudeDesired.roll;
+    des_pitch = attitudeDesired.pitch;
+  }
+
+  if (RATE_DO_EXECUTE(LQR_UPDATE_RATE, tick) && leave_ground) {
     // using sensor info for state estimation of dotRoll, dotPitch, and dotYaw
     // gyro unit: rad/sec
     float state_rateRoll = radians(sensors->gyro.x);
@@ -280,9 +449,9 @@ void controllerLqr(control_t *control, setpoint_t *setpoint,
     error[0] = setpoint->position.z - state->position.z;
 
     // error rpy [rad]
-    error[1] = radians(setpoint->attitude.roll - state->attitude.roll);
-    error[2] = radians(setpoint->attitude.pitch + state->attitude.pitch);
-    error[3] = radians(setpoint->attitude.yaw - state->attitude.yaw);
+    error[1] = radians(attitudeDesired.roll - state->attitude.roll);
+    error[2] = radians(-attitudeDesired.pitch + state->attitude.pitch);
+    error[3] = radians(capAngle(capAngle(attitudeDesired.yaw) - capAngle(state->attitude.yaw)));
 
     // error vz [m/s]
     error[4] = setpoint->velocity.z - state->velocity.z;
@@ -292,12 +461,55 @@ void controllerLqr(control_t *control, setpoint_t *setpoint,
     error[6] = radians(setpoint->attitudeRate.pitch) - state_ratePitch;
     error[7] = radians(setpoint->attitudeRate.yaw) - state_rateYaw;
 
+    float* K = &K_dlqr_0[0][0];
+
+    // cap between -180 to 180 deg
+    float yaw_cap = capAngle(state->attitude.yaw);
+
+    if (-15 <= yaw_cap && yaw_cap < 15) {
+      K = &K_dlqr_0[0][0];
+      gain_type = 0;
+    } else if(15 <= yaw_cap && yaw_cap < 45 ) {
+      K = &K_dlqr_30[0][0];
+      gain_type = 30;
+    } else if(45 <= yaw_cap && yaw_cap < 75) {
+      K = &K_dlqr_60[0][0];
+      gain_type = 60;
+    } else if(75 <= yaw_cap && yaw_cap < 105) {
+      K = &K_dlqr_90[0][0];
+      gain_type = 90;
+    } else if(105 <= yaw_cap && yaw_cap < 135) {
+      K = &K_dlqr_120[0][0];
+      gain_type = 120;
+    } else if(135 <= yaw_cap && yaw_cap < 165 ) {
+      K = &K_dlqr_150[0][0];
+      gain_type = 150;
+    } else if(165 <= yaw_cap || yaw_cap < -165) {
+      K = &K_dlqr_180[0][0];
+      gain_type = 180;
+    } else if(-165 <= yaw_cap && yaw_cap < -135) {
+      K = &K_dlqr_n150[0][0];
+      gain_type = 210;
+    } else if(-135 <= yaw_cap && yaw_cap < -105) {
+      K = &K_dlqr_n120[0][0];
+      gain_type = 240;
+    } else if(-105 <= yaw_cap && yaw_cap < -75) {
+      K = &K_dlqr_n90[0][0];
+      gain_type = 270;
+    } else if(-75 <= yaw_cap && yaw_cap < -45) {
+      K = &K_dlqr_n60[0][0];
+      gain_type = 300;
+    } else if(-45 <= yaw_cap && yaw_cap < -15) {
+      K = &K_dlqr_n30[0][0];
+      gain_type = 330;
+    }
+
     // matrix multiplication
     float res = 0.0f;
     for (int i = 0; i < NUM_CTRL; i++) {
       res = 0.0f;
       for (int j = 0; j < NUM_STATE; j++) {
-        res += K_dlqr[i][j] * error[j];
+        res += *(K+i*NUM_STATE+j) * error[j];
       }
       u[i] = res;
     }
@@ -312,6 +524,10 @@ void controllerLqr(control_t *control, setpoint_t *setpoint,
       control->torqueX = 0.0f;
       control->torqueY = 0.0f;
       control->torqueZ = 0.0f;
+      positionControllerResetAllPID();
+
+      // Reset the calculated YAW angle for rate control
+      attitudeDesired.yaw = state->attitude.yaw;
     }
 
     // log values
@@ -378,11 +594,21 @@ LOG_ADD(LOG_FLOAT, err_roll, &err_roll)
  */
 LOG_ADD(LOG_FLOAT, err_pitch, &err_pitch)
 /**
- * @brief start fall flag
+ * @brief gain schedule type
  */
-LOG_ADD(LOG_INT8, start_fall, &start_fall)
+LOG_ADD(LOG_INT8, gain_type, &gain_type)
+#ifndef FULL_STATE
 /**
- * @brief current set point height
+ * @brief desired roll
  */
-LOG_ADD(LOG_FLOAT, height, &height)
+LOG_ADD(LOG_FLOAT, des_roll, &des_roll)
+/**
+ * @brief desired pitch
+ */
+LOG_ADD(LOG_FLOAT, des_pitch, &des_pitch)
+/**
+ * @brief desired yaw
+ */
+LOG_ADD(LOG_FLOAT, des_yaw, &des_yaw)
+#endif
 LOG_GROUP_STOP(ctrlLqr)
