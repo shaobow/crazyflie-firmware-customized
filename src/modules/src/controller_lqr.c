@@ -27,14 +27,15 @@ static int gain_type = 0;
 // init and status flag
 static bool isInit = false;
 static bool start_fall = false;
+static bool leave_ground = false;
 static int cnt = 0;
 static float height = 0.0f;
 
 // use lqr method flag
 // #define FULL_STATE
 // #define REDUCED_STATE
-// #define FULL_STATE_REGRESSION
-#define REDUCED_STATE_REGRESSION
+#define FULL_STATE_REGRESSION
+// #define REDUCED_STATE_REGRESSION
 
 // tune variable
 static float acc_tol = 0.1; // [Gs]
