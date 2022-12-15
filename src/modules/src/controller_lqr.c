@@ -515,7 +515,18 @@ void controllerLqr(control_t *control, const setpoint_t *setpoint,
     }
 
     // feedback
-    control->thrustSi = u[0] + CF_MASS * 9.81f;
+    // scale thrust
+    float t1 = sinf(state->attitude.roll)*sinf(state->attitude.yaw);
+    float t2 = cosf(state->attitude.roll)*cosf(state->attitude.yaw)*sinf(-state->attitude.pitch);
+    float t3 = sinf(attitudeDesired.roll)*sinf(attitudeDesired.yaw);
+    float t4 = cosf(attitudeDesired.roll)*cosf(attitudeDesired.yaw)*sinf(-attitudeDesired.pitch);
+    float t5 = cosf(state->attitude.yaw)*sinf(state->attitude.roll);
+    float t6 = -cosf(state->attitude.roll)*sinf(state->attitude.yaw)*sinf(-state->attitude.pitch);
+    float t7 = cosf(attitudeDesired.yaw)*sinf(attitudeDesired.roll);
+    float t8 = -cosf(attitudeDesired.roll)*sinf(attitudeDesired.yaw)*sinf(-attitudeDesired.pitch);
+    float t9 = cosf(state->attitude.roll)*cosf(attitudeDesired.roll)*cosf(-state->attitude.pitch)*cosf(-attitudeDesired.pitch);
+    float scale = (t1+t2)*(t3+t4)+(t5+t6)*(t7+t8)+t9;
+    control->thrustSi = (u[0] + CF_MASS * 9.81f) * scale;
     if(control->thrustSi > 0){
       control->torqueX = u[1];
       control->torqueY = u[2];
@@ -525,9 +536,6 @@ void controllerLqr(control_t *control, const setpoint_t *setpoint,
       control->torqueY = 0.0f;
       control->torqueZ = 0.0f;
       positionControllerResetAllPID();
-
-      // Reset the calculated YAW angle for rate control
-      attitudeDesired.yaw = state->attitude.yaw;
     }
 
     // log values
