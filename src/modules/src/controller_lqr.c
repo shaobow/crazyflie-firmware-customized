@@ -29,6 +29,7 @@ static bool isInit = false;
 
 // status check
 static bool leave_ground = false;
+static uint8_t flag_start_fall = 0;
 
 // use full state flag
 //#define FULL_STATE 1
@@ -209,88 +210,102 @@ void controllerLqr(control_t *control, const setpoint_t *setpoint,
                    const uint32_t tick) {
 
   control->controlMode = controlModeForceTorque;
-
-  if(RATE_DO_EXECUTE(RATE_100_HZ, tick)){
-    if(setpoint->position.z >= 0.01f){
-      leave_ground = true;
-    }else{
-      control->thrustSi = 0.0f;
-      control->torqueX = 0.0f;
-      control->torqueY = 0.0f;
-      control->torqueZ = 0.0f;
-      leave_ground = false;
-    }
-  }
-
-  if (RATE_DO_EXECUTE(LQR_UPDATE_RATE, tick)  && leave_ground) {
-    if (setpoint->mode.yaw == modeAbs) {
-      attitudeDesired.yaw = setpoint->attitude.yaw;
-    }
-
-    attitudeDesired.yaw = capAngle(attitudeDesired.yaw);
-    des_yaw = attitudeDesired.yaw;
-  }
-
-  if (RATE_DO_EXECUTE(POSITION_RATE, tick) && leave_ground) {
-    positionController(&actuatorThrust, &attitudeDesired, setpoint, state);
-    des_roll = attitudeDesired.roll;
-    des_pitch = attitudeDesired.pitch;
-  }
-
-  if (RATE_DO_EXECUTE(LQR_UPDATE_RATE, tick) && leave_ground) {
-    // using sensor info for state estimation of dotRoll, dotPitch, and dotYaw
-    // gyro unit: rad/sec
-    float state_rateRoll = radians(sensors->gyro.x);
-    float state_ratePitch = radians(sensors->gyro.y);
-    float state_rateYaw = radians(sensors->gyro.z);
-
-    float u[NUM_CTRL] = {0.0f};
-    float error[NUM_STATE] = {0.0f};
-
-    // error rpy [rad]
-    error[0] = radians(attitudeDesired.roll*rp_gain - state->attitude.roll);
-    error[1] = radians(-attitudeDesired.pitch*rp_gain + state->attitude.pitch);
-    error[2] = radians(capAngle(capAngle(attitudeDesired.yaw) - capAngle(state->attitude.yaw)));
-
-    // error vr vp vy [rad/s]
-    error[3] = radians(setpoint->attitudeRate.roll) - state_rateRoll;
-    error[4] = radians(setpoint->attitudeRate.pitch) - state_ratePitch;
-    error[5] = radians(setpoint->attitudeRate.yaw) - state_rateYaw;
-
-    float* K = &K_dlqr_0[0][0];
-
-    // matrix multiplication
-    float res = 0.0f;
-    for (int i = 0; i < NUM_CTRL; i++) {
-      res = 0.0f;
-      for (int j = 0; j < NUM_STATE; j++) {
-        res += *(K+i*NUM_STATE+j) * error[j];
+  if(flag_start_fall == 1){
+    if(RATE_DO_EXECUTE(RATE_100_HZ, tick)){
+      if(setpoint->position.z >= 0.01f){
+        leave_ground = true;
+      }else{
+        control->thrustSi = 0.0f;
+        control->torqueX = 0.0f;
+        control->torqueY = 0.0f;
+        control->torqueZ = 0.0f;
+        leave_ground = false;
       }
-      u[i] = res;
     }
 
-    control->thrustSi = actuatorThrust*scale;
-    if(control->thrustSi > 0){
-      control->torqueX = u[0];
-      control->torqueY = u[1];
-      control->torqueZ = u[2];
-    }else{
-      control->torqueX = 0.0f;
-      control->torqueY = 0.0f;
-      control->torqueZ = 0.0f;
-      positionControllerResetAllPID();
+    if (RATE_DO_EXECUTE(LQR_UPDATE_RATE, tick)  && leave_ground) {
+      if (setpoint->mode.yaw == modeAbs) {
+        attitudeDesired.yaw = setpoint->attitude.yaw;
+      }
+
+      attitudeDesired.yaw = capAngle(attitudeDesired.yaw);
+      des_yaw = attitudeDesired.yaw;
     }
+
+    if (RATE_DO_EXECUTE(POSITION_RATE, tick) && leave_ground) {
+      positionController(&actuatorThrust, &attitudeDesired, setpoint, state);
+      des_roll = attitudeDesired.roll;
+      des_pitch = attitudeDesired.pitch;
+    }
+
+    if (RATE_DO_EXECUTE(LQR_UPDATE_RATE, tick) && leave_ground) {
+      // using sensor info for state estimation of dotRoll, dotPitch, and dotYaw
+      // gyro unit: rad/sec
+      float state_rateRoll = radians(sensors->gyro.x);
+      float state_ratePitch = radians(sensors->gyro.y);
+      float state_rateYaw = radians(sensors->gyro.z);
+
+      float u[NUM_CTRL] = {0.0f};
+      float error[NUM_STATE] = {0.0f};
+
+      // error rpy [rad]
+      error[0] = radians(attitudeDesired.roll*rp_gain - state->attitude.roll);
+      error[1] = radians(-attitudeDesired.pitch*rp_gain + state->attitude.pitch);
+      error[2] = radians(capAngle(capAngle(attitudeDesired.yaw) - capAngle(state->attitude.yaw)));
+
+      // error vr vp vy [rad/s]
+      error[3] = radians(setpoint->attitudeRate.roll) - state_rateRoll;
+      error[4] = radians(setpoint->attitudeRate.pitch) - state_ratePitch;
+      error[5] = radians(setpoint->attitudeRate.yaw) - state_rateYaw;
+
+      float* K = &K_dlqr_0[0][0];
+
+      // matrix multiplication
+      float res = 0.0f;
+      for (int i = 0; i < NUM_CTRL; i++) {
+        res = 0.0f;
+        for (int j = 0; j < NUM_STATE; j++) {
+          res += *(K+i*NUM_STATE+j) * error[j];
+        }
+        u[i] = res;
+      }
+
+      control->thrustSi = actuatorThrust*scale;
+      if(control->thrustSi > 0){
+        control->torqueX = u[0];
+        control->torqueY = u[1];
+        control->torqueZ = u[2];
+      }else{
+        control->torqueX = 0.0f;
+        control->torqueY = 0.0f;
+        control->torqueZ = 0.0f;
+        positionControllerResetAllPID();
+      }
+
+      // log values
+      cmd_thrust = control->thrustSi;
+      cmd_roll = control->torqueX;
+      cmd_pitch = control->torqueY;
+      cmd_yaw = control->torqueZ;
+
+      err_z = error[0];
+      err_roll = error[1];
+      err_pitch = error[2];
+    }
+  }else{
+    control->thrustSi = 0.0f;
+    control->torqueX = 0.0f;
+    control->torqueY = 0.0f;
+    control->torqueZ = 0.0f;
+    positionControllerResetAllPID();
 
     // log values
     cmd_thrust = control->thrustSi;
     cmd_roll = control->torqueX;
     cmd_pitch = control->torqueY;
     cmd_yaw = control->torqueZ;
-
-    err_z = error[0];
-    err_roll = error[1];
-    err_pitch = error[2];
   }
+
 }
 
 #endif
@@ -310,6 +325,10 @@ PARAM_ADD(PARAM_FLOAT, scale, &scale)
  */
 PARAM_ADD(PARAM_FLOAT, rp_gain, &rp_gain)
 #endif
+/**
+ * @brief app start flag
+ */
+PARAM_ADD(PARAM_UINT8, flag_start_fall, &flag_start_fall)
 PARAM_GROUP_STOP(ctrlLqr)
 
 /**
