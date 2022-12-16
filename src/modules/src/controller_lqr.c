@@ -169,11 +169,6 @@ void controllerLqr(control_t *control, const setpoint_t *setpoint,
 #define NUM_STATE 6
 #define NUM_CTRL 3
 
-// physical param
-#define I_XX 1.395e-5f
-#define I_YY 1.436e-5f
-#define I_ZZ 2.173e-5f
-
 static attitude_t attitudeDesired;
 static float actuatorThrust;  // do not use this to calculate thrust
 
@@ -276,9 +271,9 @@ void controllerLqr(control_t *control, const setpoint_t *setpoint,
 
     control->thrustSi = actuatorThrust*scale;
     if(control->thrustSi > 0){
-      control->torqueX = u[0] - state_rateYaw*state_ratePitch*(I_YY - I_ZZ);
-      control->torqueY = u[1] + state_rateRoll*state_rateYaw*(I_XX - I_ZZ);
-      control->torqueZ = u[2] - state_rateRoll*state_ratePitch*(I_XX - I_YY);
+      control->torqueX = u[0];
+      control->torqueY = u[1];
+      control->torqueZ = u[2];
     }else{
       control->torqueX = 0.0f;
       control->torqueY = 0.0f;
