@@ -6,6 +6,8 @@
     },
     "files.associations": {
         "bootloader.h": "c",
-        "position_controller.h": "c"
+        "position_controller.h": "c",
+        "crtp_commander_high_level.h": "c",
+        "param.h": "c"
     }
 }
